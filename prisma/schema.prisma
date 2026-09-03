@@ -1,0 +1,552 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+// ============== USER MANAGEMENT ==============
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  password          String    // hashed
+  firstName         String
+  lastName          String
+  dateOfBirth       DateTime?
+  phoneNumber       String?
+  
+  // Profile & Preferences
+  avatar            String?
+  preferredLanguage String    @default("en")
+  timezone          String    @default("UTC")
+  notificationsEnabled Boolean @default(true)
+  
+  // Health Profile
+  height            Float?    // cm
+  weight            Float?    // kg
+  bloodType         String?
+  medicalConditions String[]  // Array of conditions
+  
+  // Cycle Settings
+  averageCycleLength Int      @default(28) // days
+  averagePeriodLength Int     @default(5)  // days
+  lastPeriodStart   DateTime?
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastLoginAt       DateTime?
+  isActive          Boolean   @default(true)
+
+  // Relations
+  devices           Device[]
+  cycleEntries      CycleEntry[]
+  painLogs          PainLog[]
+  therapySessions   TherapySession[]
+  healthStats       HealthStats?
+  symptoms          SymptomLog[]
+  aiPredictions     AIPrediction[]
+  feedback          UserFeedback[]
+  safetyAlerts      SafetyAlert[]
+  
+  @@map("users")
+}
+
+// ============== DEVICE MANAGEMENT ==============
+
+model Device {
+  id                String    @id @default(uuid())
+  userId            String
+  deviceSerial      String    @unique
+  deviceName        String    @default("Pain Relief Band")
+  firmwareVersion   String?
+  
+  // Connection Status
+  isConnected       Boolean   @default(false)
+  lastConnectedAt   DateTime?
+  bluetoothAddress  String?
+  signalStrength    Int?      // RSSI value
+  
+  // Hardware Components Status
+  heatingPadStatus  ComponentStatus @default(OK)
+  vibrationStatus   ComponentStatus @default(OK)
+  batteryStatus     ComponentStatus @default(OK)
+  sensorStatus      ComponentStatus @default(OK)
+  
+  // Current State (Live Data)
+  currentTemperature Float?   // Celsius
+  targetTemperature  Float?   // Celsius
+  vibrationIntensity Int?     // 0-100
+  isHeating         Boolean   @default(false)
+  isVibrating       Boolean   @default(false)
+  
+  // Battery & Safety
+  batteryLevel      Int       @default(100) // 0-100
+  isCharging        Boolean   @default(false)
+  safetyShutoffTemp Float     @default(45.0) // Max temp before auto-shutoff
+  
+  // Timestamps
+  pairedAt          DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  therapySessions   TherapySession[]
+  deviceLogs        DeviceLog[]
+
+  @@map("devices")
+}
+
+model DeviceLog {
+  id          String   @id @default(uuid())
+  deviceId    String
+  logType     DeviceLogType
+  message     String
+  severity    LogSeverity   @default(INFO)
+  metadata    Json?         // Additional structured data
+  
+  createdAt   DateTime      @default(now())
+
+  device      Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@map("device_logs")
+}
+
+// ============== MENSTRUAL CYCLE TRACKING ==============
+
+model CycleEntry {
+  id              String    @id @default(uuid())
+  userId          String
+  
+  // Cycle Identification
+  cycleStartDate  DateTime
+  cycleEndDate    DateTime?
+  cycleLength     Int?      // calculated in days
+  
+  // Period Details
+  flowIntensity   FlowIntensity @default(MEDIUM)
+  periodLength    Int?      // actual period days
+  
+  // Symptoms & Mood
+  symptoms        Symptom[]
+  mood            Mood[]
+  notes           String?
+  
+  // AI Insights for this cycle
+  predictedNextCycle DateTime?
+  painForecast    Json?     // AI predicted pain levels per day
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, cycleStartDate])
+  @@map("cycle_entries")
+}
+
+model SymptomLog {
+  id          String   @id @default(uuid())
+  userId      String
+  loggedAt    DateTime @default(now())
+  
+  // Daily symptom tracking
+  symptomType SymptomType
+  severity    Int        @db.SmallInt // 1-10
+  duration    Int?       // minutes, if applicable
+  location    String?    // e.g., "lower abdomen", "back"
+  notes       String?
+  
+  // Context
+  cycleDay    Int?       // Day in current cycle
+  isDuringPeriod Boolean @default(false)
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+  @@map("symptom_logs")
+}
+
+// ============== PAIN MANAGEMENT & AI ==============
+
+model PainLog {
+  id              String    @id @default(uuid())
+  userId          String
+  
+  // Pain Assessment
+  painLevel       Int       @db.SmallInt // 0-10 scale
+  painLocation    String[]  // e.g., ["abdomen", "lower_back", "thighs"]
+  painType        PainType  // cramping, sharp, dull, etc.
+  
+  // Context for AI
+  cycleDay        Int
+  timeOfDay       TimeOfDay
+  activityLevel   ActivityLevel
+  stressLevel     Int?      // 1-10
+  sleepQuality    Int?      // 1-10
+  
+  // Medication taken
+  medicationTaken Boolean   @default(false)
+  medicationType  String?
+  
+  // Environmental factors
+  weather         String?
+  temperature     Float?    // ambient temp
+  
+  loggedAt        DateTime  @default(now())
+  
+  // Relation to therapy
+  therapySession  TherapySession?
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+  @@index([userId, cycleDay])
+  @@map("pain_logs")
+}
+
+model AIPrediction {
+  id              String    @id @default(uuid())
+  userId          String
+  
+  // Prediction Details
+  predictionType  PredictionType
+  predictedPainLevel Int?   @db.SmallInt // 0-10
+  confidenceScore Float     // 0.0 - 1.0
+  
+  // Context used for prediction
+  cycleDay        Int
+  inputFeatures   Json      // Features used: symptoms, history, etc.
+  
+  // Recommended Therapy
+  recommendedHeatLevel    HeatLevel
+  recommendedVibration    VibrationPattern
+  recommendedDuration     Int       // minutes
+  
+  // Actual outcome (for model improvement)
+  actualPainLevel   Int?    @db.SmallInt
+  wasAccurate       Boolean?
+  userFeedback      String?
+  
+  predictedAt     DateTime  @default(now())
+  validUntil      DateTime  // Prediction expiration
+  
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, predictedAt])
+  @@map("ai_predictions")
+}
+
+// ============== THERAPY SESSIONS ==============
+
+model TherapySession {
+  id              String    @id @default(uuid())
+  userId          String
+  deviceId        String?
+  painLogId       String?   @unique
+  
+  // AI Decision
+  aiPredictionId  String?
+  triggerType     TriggerType // AUTO (AI), MANUAL, SCHEDULED
+  
+  // Therapy Configuration
+  therapyType     TherapyType
+  heatLevel       HeatLevel
+  targetTemp      Float     // Celsius
+  vibrationPattern VibrationPattern
+  vibrationIntensity Int    @db.SmallInt // 0-100
+  
+  // Timing
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  scheduledDuration Int     // planned minutes
+  actualDuration  Int?      // actual minutes
+  
+  // Live Telemetry (from device)
+  temperatureLog  Json[]    // [{timestamp, temp}, ...]
+  vibrationLog    Json[]    // [{timestamp, intensity}, ...]
+  
+  // Safety
+  safetyTriggers  Int       @default(0) // number of safety shutoffs
+  maxTempReached  Float?
+  
+  // Effectiveness
+  painBefore      Int       @db.SmallInt
+  painAfter       Int?      @db.SmallInt
+  userSatisfaction Int?     @db.SmallInt // 1-5 rating
+  
+  status          SessionStatus @default(ACTIVE)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device          Device?   @relation(fields: [deviceId], references: [id])
+  painLog         PainLog?  @relation(fields: [painLogId], references: [id])
+
+  @@index([userId, startedAt])
+  @@map("therapy_sessions")
+}
+
+// ============== HEALTH STATISTICS & INSIGHTS ==============
+
+model HealthStats {
+  id                      String   @id @default(uuid())
+  userId                  String   @unique
+  
+  // Aggregated Cycle Data
+  totalCyclesTracked      Int      @default(0)
+  averageCycleLength      Float?
+  averagePeriodLength     Float?
+  cycleRegularityScore    Float?   // 0-100, calculated variance
+  
+  // Pain Statistics
+  averagePainLevel        Float?   // 0-10
+  peakPainDay             Int?     // Usually day 1 or 2
+  painReductionWithTherapy Float?  // percentage improvement
+  
+  // Therapy Usage
+  totalTherapySessions    Int      @default(0)
+  totalTherapyMinutes     Int      @default(0)
+  favoriteTherapyType     TherapyType?
+  
+  // Device Usage
+  averageSessionDuration  Int?     // minutes
+  safetyShutoffCount      Int      @default(0)
+  
+  // Last Calculated
+  lastCalculatedAt        DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("health_stats")
+}
+
+// ============== SAFETY & FEEDBACK ==============
+
+model SafetyAlert {
+  id              String    @id @default(uuid())
+  userId          String
+  
+  alertType       SafetyAlertType
+  severity        AlertSeverity
+  message         String
+  deviceId        String?
+  
+  // Alert Context
+  triggeredValue  Float?    // e.g., temperature that triggered it
+  thresholdValue  Float?    // safety limit
+  sessionId       String?
+  
+  // Resolution
+  isResolved      Boolean   @default(false)
+  resolvedAt      DateTime?
+  resolutionNote  String?
+  
+  createdAt       DateTime  @default(now())
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("safety_alerts")
+}
+
+model UserFeedback {
+  id              String    @id @default(uuid())
+  userId          String
+  
+  feedbackType    FeedbackType
+  rating          Int?      @db.SmallInt // 1-5
+  comment         String?
+  category        String?   // "app", "device", "therapy", "ai"
+  
+  // Context
+  sessionId       String?
+  cycleDay        Int?
+  
+  createdAt       DateTime  @default(now())
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_feedback")
+}
+
+// ============== ENUMS ==============
+
+enum ComponentStatus {
+  OK
+  WARNING
+  ERROR
+  OFFLINE
+  MAINTENANCE
+}
+
+enum DeviceLogType {
+  CONNECTION
+  DISCONNECTION
+  TEMPERATURE_CHANGE
+  VIBRATION_CHANGE
+  BATTERY_LOW
+  SAFETY_TRIGGER
+  FIRMWARE_UPDATE
+  ERROR
+}
+
+enum LogSeverity {
+  DEBUG
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum FlowIntensity {
+  LIGHT
+  MEDIUM
+  HEAVY
+  SPOTTING
+}
+
+enum SymptomType {
+  CRAMPS
+  BLOATING
+  HEADACHE
+  BACK_PAIN
+  BREAST_TENDERNESS
+  MOOD_SWINGS
+  FATIGUE
+  ACNE
+  NAUSEA
+  DIARRHEA
+  CONSTIPATION
+  INSOMNIA
+  FOOD_CRAVINGS
+}
+
+enum PainType {
+  CRAMPING
+  SHARP
+  DULL
+  THROBBING
+  BURNING
+  SHOOTING
+  ACHING
+}
+
+enum TimeOfDay {
+  MORNING
+  AFTERNOON
+  EVENING
+  NIGHT
+}
+
+enum ActivityLevel {
+  RESTING
+  LIGHT
+  MODERATE
+  HIGH
+}
+
+enum PredictionType {
+  PAIN_LEVEL
+  CYCLE_START
+  OVULATION
+  THERAPY_NEED
+}
+
+enum HeatLevel {
+  NONE
+  LOW       // 37-38°C
+  MEDIUM    // 38-40°C
+  HIGH      // 40-42°C
+  MAX       // 42-45°C (with safety limits)
+}
+
+enum VibrationPattern {
+  NONE
+  PULSE
+  WAVE
+  CONTINUOUS
+  INTERMITTENT
+  MASSAGE
+}
+
+enum TherapyType {
+  HEAT_ONLY
+  VIBRATION_ONLY
+  HEAT_VIBRATION
+  SMART_ADAPTIVE // AI-controlled mix
+}
+
+enum TriggerType {
+  AUTO_AI
+  MANUAL
+  SCHEDULED
+  EMERGENCY
+}
+
+enum SessionStatus {
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  STOPPED_BY_USER
+  SAFETY_STOPPED
+  ERROR
+}
+
+enum SafetyAlertType {
+  OVERHEATING
+  BATTERY_CRITICAL
+  SKIN_IRRITATION_RISK
+  EXTENDED_USE_WARNING
+  SENSOR_MALFUNCTION
+  CONNECTION_LOST
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FeedbackType {
+  THERAPY_EFFECTIVENESS
+  APP_EXPERIENCE
+  DEVICE_COMFORT
+  AI_ACCURACY
+  FEATURE_REQUEST
+  BUG_REPORT
+}
+
+enum Mood {
+  HAPPY
+  ENERGETIC
+  CALM
+  IRRITABLE
+  ANXIOUS
+  SAD
+  STRESSED
+  TIRED
+  MOTIVATED
+}
+
+enum Symptom {
+  CRAMPS
+  BLOATING
+  HEADACHE
+  BACKACHE
+  TENDER_BREASTS
+  ACNE
+  FATIGUE
+  CRAVINGS
+  MOOD_SWINGS
+  INSOMNIA
+  NAUSEA
+}
