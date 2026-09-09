@@ -1,13 +1,15 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
+const passport = require('passport');
 
 const readingsRouter = require('./modules/readings/readings.routes');
+const authRouter     = require('./modules/auth/auth.routes');
+const cycleRouter    = require('./modules/cycle/cycle.routes');
+const wellnessRouter = require('./modules/wellness/wellness.routes');
 
-// ─── Auth / User routes (existing modules) ───────────────────────────────────
-// Import your existing auth/user routers here if they exist, e.g.:
-// const authRouter = require('./modules/auth/auth.routes');
-// const userRouter = require('./modules/user/user.routes');
+const { createFreshTransporter } = require('./config/mail.config');
 
 const app = express();
 
@@ -17,10 +19,21 @@ app.use(
     origin: process.env.CORS_ORIGIN || '*',
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
   })
 );
+app.use(cookieParser());
 app.use(bodyParser.json({ limit: '1mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Passport (stateless — no sessions needed for JWT flow)
+app.use(passport.initialize());
+
+createFreshTransporter().then(t => t.verify()).then(() => {
+  console.log("📍 [MAILER] Mailer is ready to send emails");
+}).catch((err) => {
+  console.error("❗ [MAILER] Mailer verification failed:", err);
+});
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
@@ -29,10 +42,9 @@ app.get('/health', (_req, res) => {
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use('/api/readings', readingsRouter);
-
-// Mount existing routers if they exist:
-// app.use('/api/auth', authRouter);
-// app.use('/api/user', userRouter);
+app.use('/api/auth',     authRouter);
+app.use('/api/cycle',    cycleRouter);
+app.use('/api/wellness', wellnessRouter);
 
 // ─── 404 handler ─────────────────────────────────────────────────────────────
 app.use((_req, res) => {
