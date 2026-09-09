@@ -4,7 +4,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
-const PreferenceItem = ({ label, value, isToggle = false, isLast = false }) => {
+interface PreferenceItemProps {
+    label: string;
+    value?: string;
+    isToggle?: boolean;
+    isLast?: boolean;
+}
+
+const PreferenceItem = ({ label, value, isToggle = false, isLast = false }: PreferenceItemProps) => {
     const [isEnabled, setIsEnabled] = useState(true);
 
     return (

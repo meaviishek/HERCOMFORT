@@ -14,7 +14,7 @@ export default function LogPainScreen() {
     ];
     const [selectedSymptoms, setSelectedSymptoms] = useState(['Cramps', 'Fatigue']);
 
-    const toggleSymptom = (symptom) => {
+    const toggleSymptom = (symptom: string) => {
         if (selectedSymptoms.includes(symptom)) {
             setSelectedSymptoms(selectedSymptoms.filter(s => s !== symptom));
         } else {

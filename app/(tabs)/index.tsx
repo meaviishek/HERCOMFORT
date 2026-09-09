@@ -1,226 +1,604 @@
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather, Ionicons } from '@expo/vector-icons';
-import Svg, { Path } from 'react-native-svg';
-import { useRouter } from 'expo-router';
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import {
+  View, Text, ScrollView, TouchableOpacity, Dimensions,
+  Modal, Alert, ActivityIndicator, RefreshControl, Animated,
+} from "react-native";
+import { Feather, Ionicons } from "@expo/vector-icons";
+import Svg, { Path } from "react-native-svg";
+import { useRouter } from "expo-router";
+import { useAuth } from "../../context/AuthContext";
+import { useBluetooth, CONNECTION_STATUS } from "../../context/BluetoothContext";
+import cycleService, { CycleSummary, Cycle, FlowLevel } from "../../services/cycleService";
+import { T, palette } from "../../constants/theme";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
+const CAL_DAY_SZ = Math.floor((width - 48) / 7);
 
-// SVG Wave for the bottom of the pink header area
-const WaveShape = () => {
-  return (
-    <View className="absolute -bottom-1 w-full" style={{ height: 60, zIndex: 10 }}>
-      {/* 
-        This is a smooth bezier curve drawing exactly like the bottom of the pink section 
-        in the provided mockup.
-      */}
-      <Svg width={width} height="60" viewBox="0 0 1440 120" preserveAspectRatio="none">
-        <Path
-          fill="#ffffff"
-          d="M0,60 C320,120 420,0 720,60 C1020,120 1120,0 1440,60 L1440,120 L0,120 Z"
-        />
-      </Svg>
-    </View>
-  );
+function fmtDate(iso: string | Date | undefined | null) {
+  if (!iso) return "-";
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+function fmtShort(iso: string | Date | undefined | null) {
+  if (!iso) return "-";
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+// Phase meta – only label/subtitle changes; colour is ALWAYS pink
+const PHASE_META: Record<string, { label: string; subtitle: string }> = {
+  menstrual:  { label: "Period",     subtitle: "Take it easy today \u{1F338}" },
+  follicular: { label: "Follicular", subtitle: "Energy rising! \u{1F4AA}" },
+  ovulation:  { label: "Fertile",   subtitle: "Peak fertility window \u{1F31F}" },
+  luteal:     { label: "Luteal",    subtitle: "Slow down & rest \u{1F319}" },
 };
 
-export default function HomeScreen() {
-  const router = useRouter();
+const FLOW_LEVELS: { label: string; value: FlowLevel; color: string }[] = [
+  { label: "Light",  value: "light",  color: palette.pink200 },
+  { label: "Medium", value: "medium", color: T.pink.primary },
+  { label: "Heavy",  value: "heavy",  color: T.pink.dark },
+];
 
-  const daysOfWeek = [
-    { label: 'S', day: 10 },
-    { label: 'M', day: 11 },
-    { label: 'T', day: 12 },
-    { label: 'W', day: 13 },
-    { label: 'T', day: 14, active: true },
-    { label: 'Today', day: 15, future: true },
-    { label: 'S', day: 16, future: true },
-  ];
+const SYMPTOMS = [
+  { key: "cramps",            label: "Cramps" },
+  { key: "bloating",          label: "Bloating" },
+  { key: "headache",          label: "Headache" },
+  { key: "fatigue",           label: "Fatigue" },
+  { key: "mood_swings",       label: "Mood" },
+  { key: "breast_tenderness", label: "Tender" },
+  { key: "acne",              label: "Acne" },
+  { key: "nausea",            label: "Nausea" },
+  { key: "backache",          label: "Backache" },
+  { key: "spotting",          label: "Spotting" },
+];
+
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DAY_LABELS  = ["S","M","T","W","T","F","S"];
+
+// ── MiniCalendar ──────────────────────────────────────────────────────────────
+function MiniCalendar({ year, month, cycles, summary }: { year: number; month: number; cycles: Cycle[]; summary: CycleSummary | null }) {
+  const firstDay   = new Date(year, month - 1, 1).getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const today = new Date();
+  const days: (number | null)[] = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+
+  function getMark(day: number) {
+    const d = new Date(year, month - 1, day);
+    for (const c of cycles) {
+      const s = new Date(c.startDate);
+      const e = c.endDate ? new Date(c.endDate) : new Date();
+      if (d >= s && d <= e) return "period";
+    }
+    if (summary?.fertileWindowStart && summary?.fertileWindowEnd) {
+      if (d >= new Date(summary.fertileWindowStart) && d <= new Date(summary.fertileWindowEnd)) return "fertile";
+    }
+    if (summary?.ovulationDate && d.toDateString() === new Date(summary.ovulationDate).toDateString()) return "ovulation";
+    if (summary?.nextPeriodDate && d.toDateString() === new Date(summary.nextPeriodDate).toDateString()) return "predicted";
+    return null;
+  }
+
+  const markStyle: Record<string, { bg: string; tc: string; border: string }> = {
+    period:    { bg: T.pink.bg,        tc: T.pink.dark,    border: T.pink.border },
+    ovulation: { bg: "#fce7f3",        tc: T.pink.primary, border: T.pink.border },
+    fertile:   { bg: palette.pink100,  tc: T.pink.dark,    border: palette.pink200 },
+    predicted: { bg: palette.pink50,   tc: T.pink.primary, border: palette.pink100 },
+  };
 
   return (
-    <View className="flex-1 bg-white pt-12">
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120, backgroundColor: 'white' }}>
+    <View>
+      <View style={{ flexDirection: "row", marginBottom: 6 }}>
+        {DAY_LABELS.map((l, i) => (
+          <View key={i} style={{ width: CAL_DAY_SZ, alignItems: "center" }}>
+            <Text style={{ fontSize: 10, fontWeight: "700", color: T.text.muted }}>{l}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+        {days.map((day, idx) => {
+          if (!day) return <View key={`e${idx}`} style={{ width: CAL_DAY_SZ }} />;
+          const mark  = getMark(day);
+          const isToday = today.getDate() === day && today.getMonth() === month - 1 && today.getFullYear() === year;
+          const ms = mark ? markStyle[mark] : null;
+          return (
+            <View key={day} style={{ width: CAL_DAY_SZ, height: CAL_DAY_SZ, alignItems: "center", justifyContent: "center", marginBottom: 2 }}>
+              <View style={{ width: CAL_DAY_SZ - 4, height: CAL_DAY_SZ - 4, borderRadius: (CAL_DAY_SZ - 4) / 2, backgroundColor: isToday ? T.pink.primary : (ms?.bg ?? "transparent"), borderWidth: ms && !isToday ? 1 : 0, borderColor: ms?.border, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontSize: 12, fontWeight: isToday ? "900" : "600", color: isToday ? "#fff" : (ms?.tc ?? T.text.primary) }}>{day}</Text>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 10, gap: 8 }}>
+        {[
+          { color: T.pink.primary,  label: "Period" },
+          { color: palette.pink300, label: "Predicted" },
+          { color: palette.pink400, label: "Ovulation" },
+          { color: palette.pink200, label: "Fertile" },
+        ].map(it => (
+          <View key={it.label} style={{ flexDirection: "row", alignItems: "center", marginRight: 12 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: it.color, marginRight: 4 }} />
+            <Text style={{ fontSize: 10, color: T.text.muted, fontWeight: "600" }}>{it.label}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
 
-        {/* Pink Header Background Container */}
-        <View className="bg-[#fce7f3] pt-2 pb-16 relative overflow-hidden" style={{ minHeight: 460 }}>
+// ── LogPeriodModal ────────────────────────────────────────────────────────────
+function LogPeriodModal({ visible, onClose, onSaved, activeCycle }: { visible: boolean; onClose: () => void; onSaved: () => void; activeCycle: Cycle | null }) {
+  const [mode, setMode] = useState<"start" | "end">("start");
+  const [flow, setFlow] = useState<FlowLevel>("medium");
+  const [symptoms, setSymptoms] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const today = new Date().toISOString().split("T")[0];
 
-          {/* Top Nav Row */}
-          <View className="flex-row justify-between items-center px-6 mb-8 z-20">
-            <TouchableOpacity>
-              <Feather name="menu" size={28} color="#374151" />
-            </TouchableOpacity>
+  useEffect(() => {
+    if (visible) { setMode(activeCycle && !activeCycle.endDate ? "end" : "start"); setFlow("medium"); setSymptoms([]); }
+  }, [visible, activeCycle]);
 
-            <Text className="text-gray-900 text-lg font-extrabold tracking-wide">October 16</Text>
+  function toggleSym(k: string) { setSymptoms(p => p.includes(k) ? p.filter(s => s !== k) : [...p, k]); }
 
-            <TouchableOpacity>
-              <Feather name="calendar" size={24} color="#374151" />
+  async function submit() {
+    try {
+      setLoading(true);
+      if (mode === "start") await cycleService.startPeriod({ startDate: today, flowLevel: flow, symptoms });
+      else await cycleService.endPeriod({ endDate: today, cycleId: activeCycle?._id });
+      onSaved(); onClose();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      Alert.alert("Error", e.response?.data?.message || "Something went wrong");
+    } finally { setLoading(false); }
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}>
+        <View style={{ backgroundColor: T.bg.card, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 28, paddingBottom: 48 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+            <Text style={{ fontSize: 22, fontWeight: "900", color: T.text.primary }}>{mode === "start" ? "Log Period Start" : "End Period"}</Text>
+            <TouchableOpacity onPress={onClose}><Feather name="x" size={24} color={T.text.muted} /></TouchableOpacity>
+          </View>
+          {activeCycle && !activeCycle.endDate && (
+            <View style={{ flexDirection: "row", backgroundColor: T.bg.input, borderRadius: 16, padding: 4, marginBottom: 24 }}>
+              {(["start", "end"] as const).map(m => (
+                <TouchableOpacity key={m} onPress={() => setMode(m)} style={{ flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: mode === m ? T.pink.primary : "transparent", alignItems: "center" }}>
+                  <Text style={{ fontWeight: "700", color: mode === m ? "#fff" : T.text.muted }}>{m === "start" ? "New Period" : "End Period"}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          {mode === "start" && (
+            <>
+              <Text style={{ fontWeight: "800", color: T.text.secondary, marginBottom: 12, fontSize: 14 }}>Flow Level</Text>
+              <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
+                {FLOW_LEVELS.map(fl => (
+                  <TouchableOpacity key={fl.value} onPress={() => setFlow(fl.value)} style={{ flex: 1, paddingVertical: 12, borderRadius: 16, backgroundColor: flow === fl.value ? fl.color : T.bg.input, alignItems: "center", borderWidth: 2, borderColor: flow === fl.value ? fl.color : "transparent" }}>
+                    <Text style={{ fontWeight: "700", color: flow === fl.value ? "#fff" : T.text.muted, fontSize: 13 }}>{fl.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={{ fontWeight: "800", color: T.text.secondary, marginBottom: 12, fontSize: 14 }}>Symptoms (optional)</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 28 }}>
+                {SYMPTOMS.map(s => {
+                  const sel = symptoms.includes(s.key);
+                  return (
+                    <TouchableOpacity key={s.key} onPress={() => toggleSym(s.key)} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: sel ? T.pink.bg : T.bg.input, borderWidth: 1.5, borderColor: sel ? T.pink.primary : "transparent" }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: sel ? T.pink.primary : T.text.muted }}>{s.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
+          {mode === "end" && (
+            <Text style={{ color: T.text.muted, fontSize: 14, marginBottom: 28, lineHeight: 22 }}>
+              Recording today ({fmtDate(today)}) as the last day of your period. Cycle data will be updated.
+            </Text>
+          )}
+          <TouchableOpacity onPress={submit} disabled={loading} style={{ backgroundColor: T.pink.primary, borderRadius: 20, paddingVertical: 16, alignItems: "center" }}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16 }}>{mode === "start" ? "Log Period Start" : "End Period"}</Text>}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ── CycleHistoryCard ──────────────────────────────────────────────────────────
+function CycleHistoryCard({ cycle, index, onDelete }: { cycle: Cycle; index: number; onDelete: () => void }) {
+  return (
+    <View style={{ backgroundColor: "#fff", borderRadius: 20, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: T.border.pink }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <View style={{ backgroundColor: T.pink.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+              <Text style={{ fontSize: 11, fontWeight: "700", color: T.pink.primary }}>Cycle #{index + 1}</Text>
+            </View>
+            {cycle.isIrregular && (
+              <View style={{ backgroundColor: "#fef3c7", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: "#d97706" }}>Irregular</Text>
+              </View>
+            )}
+          </View>
+          <Text style={{ fontWeight: "800", color: T.text.primary, fontSize: 15, marginBottom: 8 }}>
+            {fmtShort(cycle.startDate)} {"→"} {cycle.endDate ? fmtShort(cycle.endDate) : "Ongoing"}
+          </Text>
+          <View style={{ flexDirection: "row", gap: 16 }}>
+            {!!cycle.periodDuration && <View><Text style={{ fontSize: 10, color: T.text.muted, fontWeight: "600" }}>DURATION</Text><Text style={{ fontSize: 14, fontWeight: "800", color: T.text.secondary }}>{cycle.periodDuration}d</Text></View>}
+            {!!cycle.cycleLength   && <View><Text style={{ fontSize: 10, color: T.text.muted, fontWeight: "600" }}>CYCLE</Text><Text style={{ fontSize: 14, fontWeight: "800", color: T.text.secondary }}>{cycle.cycleLength}d</Text></View>}
+            {cycle.symptoms?.length > 0 && <View><Text style={{ fontSize: 10, color: T.text.muted, fontWeight: "600" }}>SYMPTOMS</Text><Text style={{ fontSize: 14, fontWeight: "800", color: T.text.secondary }}>{cycle.symptoms.length}</Text></View>}
+          </View>
+        </View>
+        <TouchableOpacity onPress={onDelete} style={{ padding: 4 }}>
+          <Feather name="trash-2" size={16} color="#f87171" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ── HomeScreen ────────────────────────────────────────────────────────────────
+export default function HomeScreen() {
+  const router = useRouter();
+  const { user } = useAuth();
+  const { connectedDevice, connectionStatus, liveData } = useBluetooth();
+  const isDeviceConnected = connectionStatus === CONNECTION_STATUS.CONNECTED;
+  const [summary,    setSummary]    = useState<CycleSummary | null>(null);
+  const [calCycles,  setCalCycles]  = useState<Cycle[]>([]);
+  const [history,    setHistory]    = useState<Cycle[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showLogModal,  setShowLogModal]  = useState(false);
+  const [showCalendar,  setShowCalendar]  = useState(false);
+  const [showHistory,   setShowHistory]   = useState(false);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const today    = new Date();
+  const calYear  = today.getFullYear();
+  const calMonth = today.getMonth() + 1;
+  const firstName = user?.name?.split(" ")[0] || "there";
+
+  useEffect(() => {
+    const pulse = Animated.loop(Animated.sequence([
+      Animated.timing(pulseAnim, { toValue: 1.04, duration: 1800, useNativeDriver: true }),
+      Animated.timing(pulseAnim, { toValue: 1,    duration: 1800, useNativeDriver: true }),
+    ]));
+    pulse.start();
+    return () => pulse.stop();
+  }, []);
+
+  async function fetchAll() {
+    try {
+      const [sum, cal, hist] = await Promise.all([
+        cycleService.getSummary(),
+        cycleService.getCalendarData(calYear, calMonth),
+        cycleService.getHistory(1, 5),
+      ]);
+      setSummary(sum); setCalCycles(cal); setHistory(hist.cycles);
+    } catch (e) { console.warn("fetchAll err", e); }
+    finally { setLoading(false); setRefreshing(false); }
+  }
+
+  useEffect(() => { fetchAll(); }, []);
+  const onRefresh = useCallback(() => { setRefreshing(true); fetchAll(); }, []);
+
+  function handleDelete(id: string) {
+    Alert.alert("Delete Cycle", "Are you sure? This cannot be undone.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => { try { await cycleService.deleteCycle(id); fetchAll(); } catch { Alert.alert("Error", "Failed."); } } },
+    ]);
+  }
+
+  const phase       = summary?.phase || "follicular";
+  const phaseMeta   = PHASE_META[phase] || PHASE_META.follicular;
+  const hasData     = summary?.hasData    ?? false;
+  const isOngoing   = summary?.isOngoing  ?? false;
+  const cycleDay    = summary?.cycleDay   ?? 1;
+  const daysUntil   = summary?.daysUntilNextPeriod ?? null;
+  const avgLen      = summary?.avgCycleLength ?? 28;
+  const activeCycle = (summary?.currentCycle ?? null) as Cycle | null;
+
+  let centerLabel = "No Data";
+  let centerSub   = "Log your first period";
+  if (hasData) {
+    if (isOngoing) { centerLabel = `Day ${cycleDay}`; centerSub = phaseMeta.subtitle; }
+    else { centerLabel = daysUntil !== null ? (daysUntil === 0 ? "Today" : `${daysUntil}d`) : "-"; centerSub = "until next period"; }
+  }
+
+  if (loading) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" }}><ActivityIndicator size="large" color={T.pink.primary} /></View>;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: T.bg.screen, paddingTop: 48 }}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120, backgroundColor: T.bg.screen }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.pink.primary} />}>
+
+        {/* ── Pink Header ────────────────────────────────────────────────── */}
+        <View style={{ backgroundColor: T.bg.header, paddingTop: 8, paddingBottom: 64, position: "relative", overflow: "hidden", minHeight: 460 }}>
+
+          {/* Top nav */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 24, marginBottom: 20, zIndex: 20 }}>
+            <View>
+              <Text style={{ fontSize: 12, color: T.text.muted, fontWeight: "600" }}>Hello, {firstName}</Text>
+              <Text style={{ fontSize: 16, fontWeight: "900", color: T.text.primary }}>
+                {today.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowCalendar(p => !p)}
+              style={{ backgroundColor: showCalendar ? T.pink.primary : "#fff", borderRadius: 12, padding: 10, elevation: 3, shadowColor: T.pink.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8 }}>
+              <Feather name="calendar" size={20} color={showCalendar ? "#fff" : T.pink.primary} />
             </TouchableOpacity>
           </View>
 
-          {/* Days Calendar Row */}
-          <View className="flex-row justify-between px-5 mb-8 z-20">
-            {daysOfWeek.map((item, i) => (
-              <View key={i} className="items-center">
-                <Text className="text-gray-800 font-bold mb-3 text-xs tracking-widest">{item.label}</Text>
+          {/* Phase badge */}
+          {hasData && (
+            <View style={{ alignSelf: "center", backgroundColor: T.pink.light, paddingHorizontal: 16, paddingVertical: 5, borderRadius: 20, marginBottom: 16, flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: T.pink.primary }} />
+              <Text style={{ fontSize: 12, fontWeight: "800", color: T.pink.primary, textTransform: "uppercase", letterSpacing: 1 }}>{phaseMeta.label} Phase</Text>
+            </View>
+          )}
 
-                {item.active ? (
-                  // Active Day (Thursday, 14th)
-                  <View className="w-10 h-10 bg-[#e84ea1] rounded-full items-center justify-center shadow-lg shadow-pink-900/40 border-2 border-white">
-                    <Text className="text-white font-bold text-base">{item.day}</Text>
-                  </View>
-                ) : item.future ? (
-                  // Future Days with dashed border (15, 16)
-                  <View className="w-10 h-10 rounded-full border-[1.5px] border-dashed border-pink-300 items-center justify-center">
-                    <Text className="text-pink-300 font-bold text-base">{item.day}</Text>
-                  </View>
-                ) : (
-                  // Past Days (10, 11, 12, 13)
-                  <View className="w-10 h-10 items-center justify-center">
-                    <Text className="text-gray-700 font-bold text-base opacity-80">{item.day}</Text>
-                  </View>
-                )}
+          {/* Concentric rings + circle */}
+          <View style={{ alignItems: "center", justifyContent: "center", zIndex: 10 }}>
+            <View style={{ position: "absolute", backgroundColor: T.pink.ring1, borderRadius: 999, width: 380, height: 380 }} />
+            <View style={{ position: "absolute", backgroundColor: T.pink.ring2, borderRadius: 999, width: 280, height: 280 }} />
+            <Animated.View style={{ transform: [{ scale: pulseAnim }], width: 220, height: 220, borderRadius: 110, backgroundColor: T.pink.primary, alignItems: "center", justifyContent: "center", shadowColor: T.pink.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 12, padding: 20, zIndex: 20, marginTop: 8 }}>
+              {isOngoing && hasData && (
+                <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "800", letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>{phaseMeta.label}:</Text>
+              )}
+              <Text style={{ color: "#fff", fontSize: 48, fontWeight: "900", lineHeight: 52, letterSpacing: -2, textAlign: "center" }}>{centerLabel}</Text>
+              <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 11, textAlign: "center", fontWeight: "600", marginTop: 4, paddingHorizontal: 12, lineHeight: 16 }}>{centerSub}</Text>
+              <TouchableOpacity onPress={() => setShowLogModal(true)}
+                style={{ backgroundColor: "rgba(255,255,255,0.9)", borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.5)" }}>
+                <Text style={{ color: T.pink.primary, fontWeight: "800", fontSize: 11 }}>
+                  {isOngoing && hasData ? "Log Flow" : hasData ? "Log Period" : "Start Tracking"}
+                </Text>
+                <Feather name="plus" size={12} color={T.pink.primary} />
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
+
+          {/* Wave */}
+          <View style={{ position: "absolute", bottom: -1, width: "100%", height: 60, zIndex: 10 }}>
+            <Svg width={width} height="60" viewBox="0 0 1440 120" preserveAspectRatio="none">
+              <Path fill="#ffffff" d="M0,60 C320,120 420,0 720,60 C1020,120 1120,0 1440,60 L1440,120 L0,120 Z" />
+            </Svg>
+          </View>
+        </View>
+
+        {/* ── Calendar ───────────────────────────────────────────────────── */}
+        {showCalendar && (
+          <View style={{ marginHorizontal: 20, marginTop: 20, backgroundColor: "#fff", borderRadius: 24, padding: 20, borderWidth: 1, borderColor: T.border.pink, elevation: 4, shadowColor: T.pink.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: "900", color: T.text.primary, marginBottom: 16 }}>
+              {MONTH_NAMES[calMonth - 1]} {calYear}
+            </Text>
+            <MiniCalendar year={calYear} month={calMonth} cycles={calCycles} summary={summary} />
+          </View>
+        )}
+
+        {/* ── Insight cards ──────────────────────────────────────────────── */}
+        {hasData && (
+          <View style={{ marginTop: 24, paddingHorizontal: 20 }}>
+            <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary, marginBottom: 14 }}>Cycle Insights</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 24 }}>
+
+              {/* Avg cycle length */}
+              <View style={{ backgroundColor: T.pink.bg, borderRadius: 20, padding: 16, width: 130, borderWidth: 1, borderColor: T.border.pink }}>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.pink.primary, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+                  <Feather name="refresh-cw" size={16} color="#fff" />
+                </View>
+                <Text style={{ fontSize: 26, fontWeight: "900", color: T.pink.dark, lineHeight: 28 }}>{avgLen}</Text>
+                <Text style={{ fontSize: 11, color: T.pink.primary, fontWeight: "700" }}>day cycle</Text>
+                <Text style={{ fontSize: 10, color: T.text.muted, marginTop: 4, fontWeight: "600" }}>avg length</Text>
               </View>
+
+              {/* Avg period duration */}
+              {!!summary?.avgPeriodDuration && (
+                <View style={{ backgroundColor: T.pink.bg, borderRadius: 20, padding: 16, width: 130, borderWidth: 1, borderColor: T.border.pink }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.pink.dark, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+                    <Feather name="droplet" size={16} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 26, fontWeight: "900", color: T.pink.dark, lineHeight: 28 }}>{summary.avgPeriodDuration}</Text>
+                  <Text style={{ fontSize: 11, color: T.pink.primary, fontWeight: "700" }}>day period</Text>
+                  <Text style={{ fontSize: 10, color: T.text.muted, marginTop: 4, fontWeight: "600" }}>avg duration</Text>
+                </View>
+              )}
+
+              {/* Days until next */}
+              {daysUntil !== null && !isOngoing && (
+                <View style={{ backgroundColor: "#fff5fa", borderRadius: 20, padding: 16, width: 130, borderWidth: 1, borderColor: T.border.pink }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.pink.action, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+                    <Feather name="clock" size={16} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 26, fontWeight: "900", color: T.pink.dark, lineHeight: 28 }}>{daysUntil}d</Text>
+                  <Text style={{ fontSize: 11, color: T.pink.primary, fontWeight: "700" }}>until period</Text>
+                  <Text style={{ fontSize: 10, color: T.text.muted, marginTop: 4, fontWeight: "600" }}>{fmtShort(summary?.nextPeriodDate)}</Text>
+                </View>
+              )}
+
+              {/* Fertile window */}
+              {!!summary?.fertileWindowStart && (
+                <View style={{ backgroundColor: T.pink.bg, borderRadius: 20, padding: 16, width: 130, borderWidth: 1, borderColor: T.border.pink }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: palette.pink400, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+                    <Ionicons name="flower" size={16} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 11, fontWeight: "900", color: T.pink.dark, lineHeight: 16 }}>{fmtShort(summary?.fertileWindowStart)}</Text>
+                  <Text style={{ fontSize: 10, color: T.text.muted }}>to</Text>
+                  <Text style={{ fontSize: 11, fontWeight: "900", color: T.pink.dark }}>{fmtShort(summary?.fertileWindowEnd)}</Text>
+                  <Text style={{ fontSize: 10, color: T.pink.primary, fontWeight: "700", marginTop: 4 }}>fertile window</Text>
+                </View>
+              )}
+
+              {/* Irregular warning */}
+              {summary?.isIrregular && (
+                <View style={{ backgroundColor: "#fff8f0", borderRadius: 20, padding: 16, width: 130, borderWidth: 1, borderColor: "#fed7aa" }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#f97316", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+                    <Feather name="alert-triangle" size={16} color="#fff" />
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: "900", color: "#7c2d12", lineHeight: 18 }}>Irregular{"\n"}Cycle</Text>
+                  <Text style={{ fontSize: 10, color: T.text.muted, marginTop: 4, fontWeight: "600" }}>detected</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* ── No data state ───────────────────────────────────────────────── */}
+        {!hasData && (
+          <View style={{ marginHorizontal: 20, marginTop: 24, backgroundColor: T.pink.bg, borderRadius: 28, padding: 28, alignItems: "center", borderWidth: 1, borderColor: T.border.pink }}>
+            <Text style={{ fontSize: 40, marginBottom: 12 }}>🌸</Text>
+            <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary, textAlign: "center", marginBottom: 8 }}>Start Tracking Your Cycle</Text>
+            <Text style={{ fontSize: 14, color: T.text.muted, textAlign: "center", lineHeight: 22, marginBottom: 24 }}>
+              Log your first period to unlock predictions, fertile windows, and personalized insights.
+            </Text>
+            <TouchableOpacity onPress={() => setShowLogModal(true)} style={{ backgroundColor: T.pink.primary, borderRadius: 20, paddingHorizontal: 32, paddingVertical: 14 }}>
+              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 15 }}>Log My First Period</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── History ────────────────────────────────────────────────────── */}
+        {history.length > 0 && (
+          <View style={{ marginTop: 28, paddingHorizontal: 20 }}>
+            <TouchableOpacity onPress={() => setShowHistory(p => !p)} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary }}>Cycle History</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Text style={{ fontSize: 13, color: T.pink.primary, fontWeight: "700" }}>{showHistory ? "Hide" : "Show all"}</Text>
+                <Feather name={showHistory ? "chevron-up" : "chevron-down"} size={16} color={T.pink.primary} />
+              </View>
+            </TouchableOpacity>
+            {showHistory && history.map((c, i) => (
+              <CycleHistoryCard key={c._id} cycle={c} index={i} onDelete={() => handleDelete(c._id)} />
             ))}
           </View>
+        )}
 
-          {/* Concentric Circles & Main Content */}
-          <View className="items-center justify-center mt-6 z-10">
 
-            {/* Outermost Ring */}
-            <View className="absolute bg-[#fbcfe8] rounded-full opacity-60 w-[380px] h-[380px]" />
-
-            {/* Middle Ring */}
-            <View className="absolute bg-[#f9a8d4] rounded-full opacity-80 w-[280px] h-[280px]" />
-
-            {/* Inner Solid Circle */}
-            <View className="bg-[#e84ea1] rounded-full w-[210px] h-[210px] items-center justify-center shadow-lg shadow-pink-900/10 z-20 p-5 mt-2">
-              <Text className="text-white text-sm font-bold tracking-widest uppercase mb-1">Period:</Text>
-              <Text className="text-white text-[56px] font-black leading-tight tracking-tighter">Day 1</Text>
-
-              <Text className="text-white text-xs text-center font-medium opacity-90 px-4 mt-2 mb-4 leading-4">
-                Low chance{'\n'}getting pregnant
-              </Text>
-
-              <TouchableOpacity className="bg-white/90 rounded-full px-5 py-2.5 flex-row items-center border border-pink-200">
-                <Text className="text-[#e84ea1] font-bold text-xs mr-2">Edit Period</Text>
-                <Feather name="edit-2" size={12} color="#e84ea1" />
+        {/* ── Wellness Hub ───────────────────────────────────────────────── */}
+        <View style={{ marginTop: 28, paddingHorizontal: 20 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary }}>Your Wellness</Text>
+            <TouchableOpacity onPress={() => router.push("/wellness" as any)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: T.pink.bg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: T.pink.border }}>
+              <Text style={{ fontSize: 12, fontWeight: "700", color: T.pink.primary }}>All Tools</Text>
+              <Feather name="arrow-right" size={12} color={T.pink.primary} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 24 }}>
+            {[
+              { emoji: "😊", label: "Mood",       route: "/mood-tracker",         bg: "#fff0f4", color: T.pink.primary },
+              { emoji: "💧", label: "Hydration",   route: "/hydration-tracker",    bg: "#e0f7ff", color: "#0ea5e9" },
+              { emoji: "💤", label: "Sleep",        route: "/sleep-tracker",        bg: "#f0f4ff", color: "#6366f1" },
+              { emoji: "📝", label: "Symptoms",    route: "/symptoms-tracker",     bg: "#fdf0ff", color: "#a855f7" },
+              { emoji: "🧘", label: "Exercises",   route: "/exercises",            bg: "#fff7f0", color: "#f97316" },
+              { emoji: "🎧", label: "Breathing",   route: "/breathing",            bg: "#f0fff4", color: "#22c55e" },
+              { emoji: "🍎", label: "Nutrition",   route: "/nutrition",            bg: "#fff0f0", color: "#ef4444" },
+              { emoji: "💊", label: "Meds",        route: "/medication-reminder",  bg: "#f0fff9", color: "#10b981" },
+            ].map(it => (
+              <TouchableOpacity key={it.label} onPress={() => router.push(it.route as any)}
+                style={{ width: 80, height: 95, backgroundColor: it.bg, borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: it.color + "25", padding: 10 }}
+                activeOpacity={0.8}>
+                <Text style={{ fontSize: 30, marginBottom: 6 }}>{it.emoji}</Text>
+                <Text style={{ fontSize: 11, fontWeight: "800", color: it.color, textAlign: "center" }}>{it.label}</Text>
               </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* The White Wave Overlay defining the bottom boundary */}
-          <WaveShape />
-        </View>
-
-        {/* --- Below the Wave: Scrollable Cards Section --- */}
-
-        {/* Feeling Stressed Card */}
-        <View className="mx-6 bg-[#fdf2f8] rounded-[32px] p-6 flex-row items-center border border-pink-100 shadow-sm relative overflow-hidden mt-6">
-
-          {/* Background Blob decoration */}
-          <View className="absolute -bottom-8 -right-8 w-32 h-32 bg-[#fbcfe8] rounded-full opacity-60 border-[12px] border-[#fce7f3]" />
-
-          <View className="flex-1 z-10 pr-2">
-            <Text className="text-[22px] font-extrabold text-gray-900 mb-2 leading-7">Feeling Stressed{'\n'}Today?</Text>
-            <Text className="text-gray-500 text-xs leading-5 mb-5 pr-4 font-medium">
-              It's okay to slow down your body just needs a little calm and care.
-            </Text>
-            <TouchableOpacity className="bg-[#e84ea1] rounded-full py-3 px-5 self-start shadow-sm">
-              <Text className="text-white font-bold text-sm">Explore Quick Relief</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View className="items-center justify-center z-10 ml-2 mt-4">
-            {/* Stand-in for Yoga Illustration */}
-            <Ionicons name="body" size={72} color="#f9a8d4" />
-          </View>
-        </View>
-
-        {/* Current Health Status (IoT Data) */}
-        <View className="mt-8 px-6 mb-2">
-          <View className="flex-row justify-between items-end mb-4">
-            <Text className="text-[22px] font-extrabold text-gray-900">Health Status</Text>
-            <Text className="text-gray-400 font-medium text-xs">Last recorded 2h ago</Text>
-          </View>
-          <View className="flex-row justify-between">
-            {/* Heart Rate */}
-            <View className="bg-white flex-1 mr-2 rounded-[24px] p-4 shadow-sm border border-gray-100 items-center">
-              <View className="flex-row items-center mb-2">
-                <Ionicons name="heart" size={16} color="#e84ea1" className="mr-1" />
-                <Text className="text-gray-400 text-[10px] font-bold uppercase tracking-widest ml-1">Live HR</Text>
-              </View>
-              <View className="flex-row items-baseline mt-1">
-                <Text className="text-3xl font-black text-gray-800 tracking-tight">82</Text>
-                <Text className="text-pink-400 font-bold ml-1 text-xs">bpm</Text>
-              </View>
-            </View>
-
-            {/* Skin Temp */}
-            <View className="bg-white flex-1 ml-2 rounded-[24px] p-4 shadow-sm border border-gray-100 items-center">
-              <View className="flex-row items-center mb-2">
-                <Ionicons name="thermometer" size={16} color="#f9a8d4" className="mr-1" />
-                <Text className="text-gray-400 text-[10px] font-bold uppercase tracking-widest ml-1">Skin Temp</Text>
-              </View>
-              <View className="flex-row items-baseline mt-1">
-                <Text className="text-3xl font-black text-gray-800 tracking-tight">36.8</Text>
-                <Text className="text-pink-400 font-bold ml-1 text-xs">°C</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Symptoms & Activity Horizontal Scroll */}
-        <View className="mt-8">
-          <Text className="text-[22px] font-extrabold text-gray-900 mb-5 px-6">How's Your Cycle Today?</Text>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            className="overflow-visible pl-6"
-            contentContainerStyle={{ paddingRight: 40 }}
-          >
-
-            {/* Add Symptoms Button */}
-            <TouchableOpacity
-              onPress={() => router.push('/log-pain')}
-              className="bg-[#fdf2f8] w-[130px] h-[170px] rounded-[32px] mr-4 p-5 items-center justify-center border border-pink-100 shadow-sm"
-            >
-              <View className="w-12 h-12 rounded-full border-2 border-pink-200 items-center justify-center mb-3 bg-white shadow-sm">
-                <Feather name="plus" size={20} color="#f472b6" />
-              </View>
-              <Text className="text-gray-800 font-extrabold text-sm text-center tracking-tight">Add{'\n'}Symptoms</Text>
-            </TouchableOpacity>
-
-            {/* Stress Meditation Card (Orange) */}
-            <TouchableOpacity className="bg-[#fb923c] w-[150px] h-[170px] rounded-[32px] mr-4 p-5 relative overflow-hidden shadow-sm shadow-orange-900/20">
-              <View className="flex-row items-center bg-white/30 px-2 py-1 rounded-full self-start mb-2">
-                <Text className="text-white text-[10px] font-bold">5 min</Text>
-              </View>
-              <Text className="text-white font-extrabold text-[16px] leading-5 pr-4 mt-1">Stress{'\n'}Meditation</Text>
-
-              {/* Decorative icon mapping to illustration */}
-              <View className="absolute -bottom-6 -right-2 opacity-90">
-                <Ionicons name="leaf" size={80} color="white" />
-              </View>
-            </TouchableOpacity>
-
-            {/* Basic Relaxation Card (Purple) */}
-            <TouchableOpacity className="bg-[#7c3aed] w-[150px] h-[170px] rounded-[32px] mr-4 p-5 relative overflow-hidden shadow-sm shadow-purple-900/20">
-              <View className="flex-row items-center bg-white/20 px-2 py-1 rounded-full self-start mb-2">
-                <Text className="text-white text-[10px] font-bold">10 min</Text>
-              </View>
-              <Text className="text-white font-extrabold text-[16px] leading-5 w-2/3 pr-2 mt-1">Basic{'\n'}relaxation</Text>
-
-              <View className="absolute -bottom-6 right-0 opacity-80">
-                <Ionicons name="moon" size={76} color="white" />
-              </View>
-            </TouchableOpacity>
-
+            ))}
           </ScrollView>
         </View>
 
+        {/* ── Quick Actions ──────────────────────────────────────────────── */}
+        <View style={{ marginTop: 28, paddingHorizontal: 20 }}>
+          <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary, marginBottom: 14 }}>Quick Relief</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 24 }}>
+            <TouchableOpacity onPress={() => router.push("/symptoms-tracker" as any)} style={{ backgroundColor: T.pink.bg, width: 130, height: 170, borderRadius: 28, padding: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: T.border.pink }}>
+              <View style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: T.pink.border, alignItems: "center", justifyContent: "center", marginBottom: 12, backgroundColor: "#fff" }}>
+                <Text style={{ fontSize: 24 }}>📝</Text>
+              </View>
+              <Text style={{ color: T.text.primary, fontWeight: "900", fontSize: 13, textAlign: "center", lineHeight: 18 }}>Log{"\n"}Symptoms</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/breathing" as any)} style={{ backgroundColor: "#fb923c", width: 150, height: 170, borderRadius: 28, padding: 18, overflow: "hidden", position: "relative" }}>
+              <View style={{ backgroundColor: "rgba(255,255,255,0.3)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start", marginBottom: 8 }}>
+                <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>5 min</Text>
+              </View>
+              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16, lineHeight: 20, paddingRight: 16 }}>Stress{"\n"}Meditation</Text>
+              <View style={{ position: "absolute", bottom: -24, right: -8, opacity: 0.9 }}>
+                <Ionicons name="leaf" size={80} color="white" />
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/exercises" as any)} style={{ backgroundColor: "#7c3aed", width: 150, height: 170, borderRadius: 28, padding: 18, overflow: "hidden", position: "relative" }}>
+              <View style={{ backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start", marginBottom: 8 }}>
+                <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>10 min</Text>
+              </View>
+              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16, lineHeight: 20, width: "66%" }}>Relief{"\n"}Exercises</Text>
+              <View style={{ position: "absolute", bottom: -24, right: 0, opacity: 0.8 }}>
+                <Ionicons name="moon" size={76} color="white" />
+              </View>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+
+        {/* ── Her Comfort Device ─────────────────────────────────────────── */}
+        <View style={{ marginTop: 28, paddingHorizontal: 20 }}>
+          <TouchableOpacity
+            onPress={() => router.push("/(tabs)/explore" as any)}
+            activeOpacity={0.85}
+            style={{
+              backgroundColor: isDeviceConnected ? "#052e16" : "#0f172a",
+              borderRadius: 28,
+              padding: 20,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 16,
+              shadowColor: isDeviceConnected ? "#16a34a" : "#000",
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.22,
+              shadowRadius: 20,
+              elevation: 8,
+              overflow: "hidden",
+              borderWidth: 1,
+              borderColor: isDeviceConnected ? "#22c55e40" : "transparent",
+            }}
+          >
+            <View style={{
+              position: "absolute", top: -30, right: -30,
+              width: 120, height: 120, borderRadius: 60,
+              backgroundColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "25",
+            }} />
+            <View style={{
+              width: 54, height: 54, borderRadius: 27,
+              backgroundColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "20",
+              alignItems: "center", justifyContent: "center",
+              borderWidth: 1.5, borderColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "50",
+            }}>
+              <Feather name={isDeviceConnected ? "activity" : "bluetooth"} size={26} color={isDeviceConnected ? "#22c55e" : T.pink.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                <Text style={{ fontSize: 16, fontWeight: "900", color: "#fff" }}>
+                  {connectedDevice?.name || "Her Comfort Device"}
+                </Text>
+                {isDeviceConnected && (
+                  <View style={{ backgroundColor: "#22c55e30", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                    <Text style={{ color: "#4ade80", fontSize: 9, fontWeight: "800" }}>LIVE</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={{ fontSize: 12, color: isDeviceConnected ? "#86efac" : "#94a3b8", fontWeight: "500" }}>
+                {isDeviceConnected
+                  ? `🌡️ ${Number(liveData?.temp ?? liveData?.temperature ?? 36.5).toFixed(1)}°C · Gyro Active · Open Dashboard`
+                  : "Temperature · Gyroscope · Live Dashboard"}
+              </Text>
+            </View>
+            <View style={{
+              backgroundColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "20",
+              borderRadius: 12, padding: 8,
+              borderWidth: 1, borderColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "40",
+            }}>
+              <Feather name="arrow-right" size={18} color={isDeviceConnected ? "#22c55e" : T.pink.primary} />
+            </View>
+          </TouchableOpacity>
+        </View>
+
       </ScrollView>
+
+      <LogPeriodModal visible={showLogModal} onClose={() => setShowLogModal(false)} onSaved={fetchAll} activeCycle={activeCycle} />
     </View>
   );
 }

@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "nari",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true
     },
@@ -17,7 +16,6 @@
         "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.BLUETOOTH",
@@ -42,11 +40,23 @@
           "resizeMode": "contain",
           "backgroundColor": "#ff5b83"
         }
-      ]
+      ],
+      "expo-font",
+      "expo-web-browser",
+      "expo-image",
+      "expo-status-bar",
+      "expo-secure-store",
+      "react-native-ble-plx"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0b8f105a-d261-42c2-9e62-9dc393a35da8"
+      }
     }
   }
 }

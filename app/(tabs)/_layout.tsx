@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Platform, StyleSheet } from 'react-native';
+import { View, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { HapticTab } from '@/components/haptic-tab';
+import { T } from '../../constants/theme';
 
 export default function TabLayout() {
   return (
@@ -12,38 +13,25 @@ export default function TabLayout() {
         headerShown: false,
         tabBarShowLabel: false,
         tabBarStyle: {
-          position: 'absolute',
-          bottom: 0,
-          left: 6,
-          right: 6,
-          backgroundColor: 'transparent',
-          borderRadius: 30,
-          height: 80,
-          elevation: 10,
-          borderTopWidth: 0,
-          paddingVertical: 10,
+          backgroundColor: T.bg.card,
+          borderTopWidth: 1,
+          borderTopColor: T.border.default,
+          height: Platform.OS === 'ios' ? 86 : 72,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+          paddingTop: 6,
+          elevation: 16,
+          shadowColor: T.pink.primary,
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.08,
+          shadowRadius: 10,
         },
         tabBarItemStyle: {
           justifyContent: 'center',
           alignItems: 'center',
         },
         tabBarIconStyle: {
-          marginTop: 8,
+          marginTop: 6,
         },
-        tabBarBackground: () => (
-          <View
-            style={{
-              ...StyleSheet.absoluteFillObject,
-              backgroundColor: '#ffffff',
-              borderRadius: 30,
-              overflow: 'hidden',
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.1,
-              shadowRadius: 15,
-              elevation: 5,
-            }}
-          />
-        ),
         tabBarButton: HapticTab,
       }}
     >
@@ -52,9 +40,9 @@ export default function TabLayout() {
         name="index"
         options={{
           tabBarIcon: ({ focused }) => (
-            <View className={`items-center justify-center mt-3 ${focused ? 'bg-[#fff0f4] rounded-2xl w-14 h-14' : 'w-14 h-14'}`}>
-              <Ionicons name="home" size={26} color={focused ? '#f43f5e' : '#9ca3af'} />
-              {focused && <View className="w-4 h-1 bg-[#f43f5e] rounded-full mt-1" />}
+            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 12, width: 56, height: 56, borderRadius: 16, backgroundColor: focused ? T.tab.activeBg : 'transparent' }}>
+              <Ionicons name="home" size={26} color={focused ? T.tab.active : T.tab.inactive} />
+              {focused && <View style={{ width: 16, height: 4, backgroundColor: T.tab.indicator, borderRadius: 2, marginTop: 2 }} />}
             </View>
           ),
         }}
@@ -65,9 +53,9 @@ export default function TabLayout() {
         name="chat"
         options={{
           tabBarIcon: ({ focused }) => (
-            <View className={`items-center justify-center mt-3 ${focused ? 'bg-[#fff0f4] rounded-2xl w-14 h-14' : 'w-14 h-14'}`}>
-              <Feather name="bluetooth" size={24} color={focused ? '#f43f5e' : '#9ca3af'} />
-              {focused && <View className="w-4 h-1 bg-[#f43f5e] rounded-full mt-1" />}
+            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 12, width: 56, height: 56, borderRadius: 16, backgroundColor: focused ? T.tab.activeBg : 'transparent' }}>
+              <Feather name="bluetooth" size={24} color={focused ? T.tab.active : T.tab.inactive} />
+              {focused && <View style={{ width: 16, height: 4, backgroundColor: T.tab.indicator, borderRadius: 2, marginTop: 2 }} />}
             </View>
           ),
         }}
@@ -78,18 +66,8 @@ export default function TabLayout() {
         name="explore"
         options={{
           tabBarIcon: ({ focused }) => (
-            <View className="items-center justify-center -mt-8">
-              <View
-                className="items-center justify-center w-[64px] h-[64px] rounded-full border-[4px] border-[#fefcfd] overflow-hidden"
-                style={{
-                  backgroundColor: focused ? '#f43f5e' : '#fb7185',
-                  elevation: 8,
-                  shadowColor: '#f43f5e',
-                  shadowOpacity: 0.4,
-                  shadowRadius: 12,
-                  shadowOffset: { width: 0, height: 4 },
-                }}
-              >
+            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: -32 }}>
+              <View style={{ alignItems: 'center', justifyContent: 'center', width: 64, height: 64, borderRadius: 32, borderWidth: 4, borderColor: '#fefcfd', overflow: 'hidden', backgroundColor: focused ? T.tab.fabBgFocused : T.tab.fabBg, elevation: 8, shadowColor: T.pink.primary, shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
                 <Ionicons name="pulse" size={28} color="white" style={{ position: 'absolute', zIndex: 10, elevation: 10 }} />
               </View>
             </View>
@@ -102,9 +80,9 @@ export default function TabLayout() {
         name="favorite"
         options={{
           tabBarIcon: ({ focused }) => (
-            <View className={`items-center justify-center mt-3 ${focused ? 'bg-[#fff0f4] rounded-2xl w-14 h-14' : 'w-14 h-14'}`}>
-              <MaterialCommunityIcons name="tune-vertical" size={24} color={focused ? '#f43f5e' : '#9ca3af'} />
-              {focused && <View className="w-4 h-1 bg-[#f43f5e] rounded-full mt-1" />}
+            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 12, width: 56, height: 56, borderRadius: 16, backgroundColor: focused ? T.tab.activeBg : 'transparent' }}>
+              <MaterialCommunityIcons name="tune-vertical" size={24} color={focused ? T.tab.active : T.tab.inactive} />
+              {focused && <View style={{ width: 16, height: 4, backgroundColor: T.tab.indicator, borderRadius: 2, marginTop: 2 }} />}
             </View>
           ),
         }}
@@ -115,9 +93,9 @@ export default function TabLayout() {
         name="account"
         options={{
           tabBarIcon: ({ focused }) => (
-            <View className={`items-center justify-center mt-3 ${focused ? 'bg-[#fff0f4] rounded-2xl w-14 h-14' : 'w-14 h-14'}`}>
-              <Ionicons name="person" size={26} color={focused ? '#f43f5e' : '#9ca3af'} />
-              {focused && <View className="w-4 h-1 bg-[#f43f5e] rounded-full mt-1" />}
+            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 12, width: 56, height: 56, borderRadius: 16, backgroundColor: focused ? T.tab.activeBg : 'transparent' }}>
+              <Ionicons name="person" size={26} color={focused ? T.tab.active : T.tab.inactive} />
+              {focused && <View style={{ width: 16, height: 4, backgroundColor: T.tab.indicator, borderRadius: 2, marginTop: 2 }} />}
             </View>
           ),
         }}

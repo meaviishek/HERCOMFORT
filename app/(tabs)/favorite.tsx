@@ -1,10 +1,5 @@
 /**
  * Manual Control Screen — favorite.tsx (repurposed tab)
- *
- * Allows the user to:
- *  - Toggle between Auto and Manual mode
- *  - Manually override the vibration motor and heater
- * Controls are disabled in Auto mode.
  */
 
 import React, { useCallback, useRef, useState } from 'react';
@@ -19,9 +14,32 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { useBluetooth, CONNECTION_STATUS } from '../../context/BluetoothContext';
+import { SensorReading } from '../../services/ApiService';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface BigToggleButtonProps {
+  label: string;
+  sublabel: string;
+  isOn: boolean;
+  onToggle: (wantOn: boolean) => Promise<void>;
+  disabled: boolean;
+  activeColor: string;
+  icon: React.ReactNode;
+  loadingKey?: string;
+}
+
+interface ModeToggleProps {
+  autoMode: boolean;
+  onToggle: (wantAuto: boolean) => Promise<void>;
+  loading: boolean;
+}
+
+interface LastCommandBadgeProps {
+  lastCommand: (Record<string, unknown> & { sentAt: number }) | null;
+}
 
 // ─── Animated Toggle Button ───────────────────────────────────────────────────
-function BigToggleButton({ label, sublabel, isOn, onToggle, disabled, activeColor, icon, loadingKey }) {
+function BigToggleButton({ label, sublabel, isOn, onToggle, disabled, activeColor, icon }: BigToggleButtonProps) {
   const scale = useRef(new Animated.Value(1)).current;
   const [loading, setLoading] = useState(false);
 
@@ -31,7 +49,6 @@ function BigToggleButton({ label, sublabel, isOn, onToggle, disabled, activeColo
       Animated.timing(scale, { toValue: 0.94, duration: 80, useNativeDriver: true }),
       Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
     ]).start();
-
     setLoading(true);
     try {
       await onToggle(!isOn);
@@ -46,14 +63,12 @@ function BigToggleButton({ label, sublabel, isOn, onToggle, disabled, activeColo
         activeOpacity={0.85}
         onPress={handlePress}
         disabled={disabled || loading}
-        className={`rounded-3xl p-5 border-2 ${
-          isOn
-            ? `border-[${activeColor}]`
-            : 'border-gray-100 bg-white'
-        }`}
         style={{
           backgroundColor: isOn ? activeColor + '12' : '#ffffff',
           borderColor: isOn ? activeColor : '#f3f4f6',
+          borderWidth: 2,
+          borderRadius: 24,
+          padding: 20,
           elevation: 3,
           shadowColor: isOn ? activeColor : '#000',
           shadowOpacity: isOn ? 0.15 : 0.04,
@@ -63,12 +78,9 @@ function BigToggleButton({ label, sublabel, isOn, onToggle, disabled, activeColo
         }}
       >
         <View className="flex-row items-center justify-between">
-          {/* Icon + labels */}
           <View className="flex-row items-center flex-1">
-            <View
-              className="w-14 h-14 rounded-2xl items-center justify-center mr-4"
-              style={{ backgroundColor: isOn ? activeColor + '20' : '#f9fafb' }}
-            >
+            <View className="w-14 h-14 rounded-2xl items-center justify-center mr-4"
+              style={{ backgroundColor: isOn ? activeColor + '20' : '#f9fafb' }}>
               {icon}
             </View>
             <View className="flex-1">
@@ -76,35 +88,18 @@ function BigToggleButton({ label, sublabel, isOn, onToggle, disabled, activeColo
               <Text className="text-gray-400 text-xs mt-0.5">{sublabel}</Text>
             </View>
           </View>
-
-          {/* State pill */}
           {loading ? (
             <ActivityIndicator color={activeColor} />
           ) : (
-            <View
-              className="px-4 py-2 rounded-full"
-              style={{ backgroundColor: isOn ? activeColor : '#f3f4f6' }}
-            >
-              <Text
-                className="font-bold text-sm"
-                style={{ color: isOn ? '#ffffff' : '#9ca3af' }}
-              >
+            <View className="px-4 py-2 rounded-full" style={{ backgroundColor: isOn ? activeColor : '#f3f4f6' }}>
+              <Text className="font-bold text-sm" style={{ color: isOn ? '#ffffff' : '#9ca3af' }}>
                 {isOn ? 'ON' : 'OFF'}
               </Text>
             </View>
           )}
         </View>
-
-        {/* State bar at bottom */}
         <View className="mt-4 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-          <View
-            style={{
-              width: isOn ? '100%' : '0%',
-              height: '100%',
-              backgroundColor: activeColor,
-              borderRadius: 999,
-            }}
-          />
+          <View style={{ width: isOn ? '100%' : '0%', height: '100%', backgroundColor: activeColor, borderRadius: 999 }} />
         </View>
       </TouchableOpacity>
     </Animated.View>
@@ -112,60 +107,40 @@ function BigToggleButton({ label, sublabel, isOn, onToggle, disabled, activeColo
 }
 
 // ─── Mode Toggle ──────────────────────────────────────────────────────────────
-function ModeToggle({ autoMode, onToggle, loading }) {
+function ModeToggle({ autoMode, onToggle, loading }: ModeToggleProps) {
   return (
     <View className="bg-gray-50 rounded-3xl p-1.5 flex-row mb-6">
       <TouchableOpacity
         onPress={() => !autoMode && onToggle(true)}
         disabled={autoMode || loading}
-        className={`flex-1 py-3.5 rounded-2xl items-center flex-row justify-center ${
-          autoMode ? 'bg-[#f43f5e]' : 'bg-transparent'
-        }`}
+        className={`flex-1 py-3.5 rounded-2xl items-center flex-row justify-center ${autoMode ? 'bg-[#f43f5e]' : 'bg-transparent'}`}
         style={autoMode ? { elevation: 3, shadowColor: '#f43f5e', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } } : {}}
       >
         {loading && autoMode && <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />}
-        <MaterialCommunityIcons
-          name="robot"
-          size={18}
-          color={autoMode ? 'white' : '#9ca3af'}
-        />
-        <Text
-          className={`ml-2 font-bold text-sm ${autoMode ? 'text-white' : 'text-gray-400'}`}
-        >
-          Auto
-        </Text>
+        <MaterialCommunityIcons name="robot" size={18} color={autoMode ? 'white' : '#9ca3af'} />
+        <Text className={`ml-2 font-bold text-sm ${autoMode ? 'text-white' : 'text-gray-400'}`}>Auto</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
         onPress={() => autoMode && onToggle(false)}
         disabled={!autoMode || loading}
-        className={`flex-1 py-3.5 rounded-2xl items-center flex-row justify-center ${
-          !autoMode ? 'bg-amber-500' : 'bg-transparent'
-        }`}
+        className={`flex-1 py-3.5 rounded-2xl items-center flex-row justify-center ${!autoMode ? 'bg-amber-500' : 'bg-transparent'}`}
         style={!autoMode ? { elevation: 3, shadowColor: '#d97706', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } } : {}}
       >
         {loading && !autoMode && <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />}
-        <MaterialCommunityIcons
-          name="hand-pointing-right"
-          size={18}
-          color={!autoMode ? 'white' : '#9ca3af'}
-        />
-        <Text
-          className={`ml-2 font-bold text-sm ${!autoMode ? 'text-white' : 'text-gray-400'}`}
-        >
-          Manual
-        </Text>
+        <MaterialCommunityIcons name="hand-pointing-right" size={18} color={!autoMode ? 'white' : '#9ca3af'} />
+        <Text className={`ml-2 font-bold text-sm ${!autoMode ? 'text-white' : 'text-gray-400'}`}>Manual</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-// ─── Disconnected placeholder ─────────────────────────────────────────────────
+// ─── Disconnected placeholder ──────────────────────────────────────────────────
 function DisconnectedMsg() {
   return (
     <View className="flex-1 items-center justify-center py-20">
       <View className="w-24 h-24 rounded-full bg-gray-50 items-center justify-center mb-5">
-        <Feather name="bluetooth-off" size={40} color="#d1d5db" />
+        <Feather name="bluetooth" size={40} color="#d1d5db" />
       </View>
       <Text className="text-gray-700 font-bold text-xl mb-2">Not Connected</Text>
       <Text className="text-gray-400 text-sm text-center px-10 leading-5">
@@ -176,7 +151,7 @@ function DisconnectedMsg() {
 }
 
 // ─── Last Command Badge ───────────────────────────────────────────────────────
-function LastCommandBadge({ lastCommand }) {
+function LastCommandBadge({ lastCommand }: LastCommandBadgeProps) {
   if (!lastCommand) return null;
   const ago = Math.round((Date.now() - lastCommand.sentAt) / 1000);
   return (
@@ -195,19 +170,16 @@ function LastCommandBadge({ lastCommand }) {
 export default function ManualControlScreen() {
   const { liveData, connectedDevice, connectionStatus, sendCommand, lastCommand } = useBluetooth();
   const isConnected = connectionStatus === CONNECTION_STATUS.CONNECTED;
-
   const [modeLoading, setModeLoading] = useState(false);
 
-  // Derived state from live device data
-  const systemActive = liveData?.system_active ?? false;
-  const motorOn = liveData?.motor ?? false;
-  const ledOn = liveData?.led ?? false;
-  const beatDetected = liveData?.beat_detected ?? false;
+  const data = liveData as (SensorReading & Record<string, unknown>) | null;
+  const systemActive = (data?.system_active as boolean | undefined) ?? false;
+  const motorOn = (data?.motor as boolean | undefined) ?? false;
+  const ledOn = (data?.led as boolean | undefined) ?? false;
+  const beatDetected = (data?.beat_detected as boolean | undefined) ?? false;
+  const manualDisabled = false;
 
-  const manualDisabled = false; // ESP32 manages its own mode; always allow commands
-
-  // ─── Mode toggle ──────────────────────────────────────────────────────────
-  const handleModeToggle = useCallback(async (wantAuto) => {
+  const handleModeToggle = useCallback(async (wantAuto: boolean) => {
     setModeLoading(true);
     try {
       await sendCommand({ mode: wantAuto ? 'auto' : 'manual' });
@@ -216,36 +188,27 @@ export default function ManualControlScreen() {
     }
   }, [sendCommand]);
 
-  // ─── Motor toggle ─────────────────────────────────────────────────────────
-  const handleMotorToggle = useCallback(async (wantOn) => {
+  const handleMotorToggle = useCallback(async (wantOn: boolean) => {
     await sendCommand({ motor: wantOn ? 1 : 0 });
   }, [sendCommand]);
 
-  // ─── LED toggle ────────────────────────────────────────────────────────────
-  const handleLedToggle = useCallback(async (wantOn) => {
+  const handleLedToggle = useCallback(async (wantOn: boolean) => {
     await sendCommand({ led: wantOn ? 1 : 0 });
   }, [sendCommand]);
 
   return (
     <SafeAreaView className="flex-1 bg-[#fffbfd]">
-      {/* Header */}
       <View className="px-5 pt-4 pb-3">
         <Text className="text-2xl font-black text-gray-800">Control</Text>
         <Text className="text-gray-400 text-sm mt-0.5">
-          {isConnected
-            ? connectedDevice?.name || 'PainReliefBand'
-            : 'No device connected'}
+          {isConnected ? connectedDevice?.name || 'PainReliefBand' : 'No device connected'}
         </Text>
       </View>
 
       {!isConnected ? (
         <DisconnectedMsg />
       ) : (
-        <ScrollView
-          className="flex-1 px-5"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 120 }}
-        >
+        <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
           {/* System Active Banner */}
           <View className={`flex-row items-center px-4 py-3 rounded-2xl mb-4 ${systemActive ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'}`}>
             <View className={`w-2.5 h-2.5 rounded-full mr-2 ${systemActive ? 'bg-green-400' : 'bg-gray-300'}`} />
@@ -278,19 +241,15 @@ export default function ManualControlScreen() {
             </View>
           </View>
 
-          {/* Controls Section */}
+          {/* Controls */}
           <View className="mb-4">
             {manualDisabled && (
               <View className="flex-row items-center mb-3 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
                 <Ionicons name="lock-closed" size={14} color="#9ca3af" />
-                <Text className="text-gray-400 text-xs ml-2">
-                  Switch to Manual mode to enable overrides
-                </Text>
+                <Text className="text-gray-400 text-xs ml-2">Switch to Manual mode to enable overrides</Text>
               </View>
             )}
-
             <View className="gap-3">
-              {/* Motor */}
               <BigToggleButton
                 label="Vibration Motor"
                 sublabel="Pulse massage therapy"
@@ -300,8 +259,6 @@ export default function ManualControlScreen() {
                 activeColor="#f43f5e"
                 icon={<MaterialCommunityIcons name="vibrate" size={26} color={motorOn ? '#f43f5e' : '#9ca3af'} />}
               />
-
-              {/* LED */}
               <BigToggleButton
                 label="LED Indicator"
                 sublabel="Device status light"
@@ -314,18 +271,18 @@ export default function ManualControlScreen() {
             </View>
           </View>
 
-          {/* Live status summary */}
-          {liveData && (
+          {/* Live status */}
+          {data && (
             <View className="bg-gray-900 rounded-3xl p-5 mb-4">
               <Text className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-3">Current Device State</Text>
               <View className="flex-row flex-wrap gap-2">
                 {[
                   { key: 'Motor', val: motorOn ? 'ON' : 'OFF', color: motorOn ? '#34d399' : '#6b7280' },
-                  { key: 'LED', val: ledOn ? 'ON' : 'OFF', color: ledOn ? '#fbbf24' : '#6b7280' },
+                  { key: 'LED',   val: ledOn ? 'ON' : 'OFF',   color: ledOn ? '#fbbf24' : '#6b7280' },
                   { key: 'System', val: systemActive ? 'ACTIVE' : 'IDLE', color: systemActive ? '#34d399' : '#6b7280' },
-                  { key: 'Temp', val: `${liveData.temp?.toFixed(1)}°C`, color: '#f9a8d4' },
-                  { key: 'BPM', val: `${liveData.bpm}`, color: '#f9a8d4' },
-                  { key: 'ADC', val: `${liveData.raw_analog ?? '—'}`, color: '#c4b5fd' },
+                  { key: 'Temp', val: `${(data.temp as number | undefined)?.toFixed(1)}°C`, color: '#f9a8d4' },
+                  { key: 'BPM',  val: `${data.bpm}`,  color: '#f9a8d4' },
+                  { key: 'ADC',  val: `${(data as Record<string, unknown>).raw_analog ?? '—'}`, color: '#c4b5fd' },
                 ].map(({ key, val, color }) => (
                   <View key={key} className="flex-row items-center bg-gray-800 rounded-xl px-3 py-1.5">
                     <Text className="text-gray-500 text-[10px] font-bold mr-1.5">{key}</Text>
@@ -336,7 +293,6 @@ export default function ManualControlScreen() {
             </View>
           )}
 
-          {/* Last command */}
           <LastCommandBadge lastCommand={lastCommand} />
         </ScrollView>
       )}

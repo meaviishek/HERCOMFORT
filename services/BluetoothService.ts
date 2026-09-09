@@ -1,36 +1,40 @@
 /**
- * BluetoothService.js
+ * BluetoothService.ts
  * Singleton wrapper around react-native-bluetooth-classic.
- *
- * Uses a polling interval to read data from the device, because the
- * onDataReceived event in react-native-bluetooth-classic can be unreliable
- * for streaming — availability() + read() is the recommended pattern.
- *
- * JSON is parsed with a resilient greedy-match so trailing serial garbage
- * like "json" won't cause dropped frames.
  */
 
-import RNBluetoothClassic from 'react-native-bluetooth-classic';
+import RNBluetoothClassic, { BluetoothDevice } from 'react-native-bluetooth-classic';
 import { PermissionsAndroid, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const LAST_DEVICE_KEY = '@painreliefband:lastDevice';
-const POLL_INTERVAL_MS = 200; // check for new data every 200 ms
+const POLL_INTERVAL_MS = 200;
+
+type DataCallback = (data: Record<string, unknown>) => void;
+type ErrorCallback = (err: Error) => void;
+
+interface LastDevice {
+  address: string;
+  name: string;
+}
+
+interface ExtractResult {
+  objects: Record<string, unknown>[];
+  remaining: string;
+}
 
 class BluetoothService {
-  constructor() {
-    this._device = null;
-    this._dataBuffer = '';
-    this._pollTimer = null;
-    this._onDataCallback = null;
-    this._onErrorCallback = null;
-  }
+  private _device: BluetoothDevice | null = null;
+  private _dataBuffer: string = '';
+  private _pollTimer: ReturnType<typeof setInterval> | null = null;
+  private _onDataCallback: DataCallback | null = null;
+  private _onErrorCallback: ErrorCallback | null = null;
 
-  // ─── Permissions ─────────────────────────────────────────────────────────────
+  // ─── Permissions ───────────────────────────────────────────────────────────
 
-  async requestPermissions() {
+  async requestPermissions(): Promise<boolean> {
     if (Platform.OS !== 'android') return true;
-    const sdkInt = Platform.Version;
+    const sdkInt = Platform.Version as number;
     try {
       if (sdkInt >= 31) {
         const results = await PermissionsAndroid.requestMultiple([
@@ -59,9 +63,9 @@ class BluetoothService {
     }
   }
 
-  // ─── Bluetooth State ─────────────────────────────────────────────────────────
+  // ─── Bluetooth State ───────────────────────────────────────────────────────
 
-  async isEnabled() {
+  async isEnabled(): Promise<boolean> {
     try {
       return await RNBluetoothClassic.isBluetoothEnabled();
     } catch {
@@ -69,7 +73,7 @@ class BluetoothService {
     }
   }
 
-  async enableBluetooth() {
+  async enableBluetooth(): Promise<boolean> {
     try {
       return await RNBluetoothClassic.requestBluetoothEnabled();
     } catch (err) {
@@ -78,9 +82,9 @@ class BluetoothService {
     }
   }
 
-  // ─── Device Discovery ────────────────────────────────────────────────────────
+  // ─── Device Discovery ──────────────────────────────────────────────────────
 
-  async getPairedDevices() {
+  async getPairedDevices(): Promise<BluetoothDevice[]> {
     try {
       const devices = await RNBluetoothClassic.getBondedDevices();
       return devices || [];
@@ -90,7 +94,7 @@ class BluetoothService {
     }
   }
 
-  async startDiscovery() {
+  async startDiscovery(): Promise<BluetoothDevice[]> {
     try {
       const discovered = await RNBluetoothClassic.startDiscovery();
       return discovered || [];
@@ -100,7 +104,7 @@ class BluetoothService {
     }
   }
 
-  async stopDiscovery() {
+  async stopDiscovery(): Promise<void> {
     try {
       await RNBluetoothClassic.cancelDiscovery();
     } catch {
@@ -108,9 +112,9 @@ class BluetoothService {
     }
   }
 
-  // ─── Connection ──────────────────────────────────────────────────────────────
+  // ─── Connection ────────────────────────────────────────────────────────────
 
-  async connect(address) {
+  async connect(address: string): Promise<BluetoothDevice> {
     try {
       if (this._device) {
         await this.disconnect();
@@ -130,7 +134,7 @@ class BluetoothService {
     }
   }
 
-  async disconnect() {
+  async disconnect(): Promise<void> {
     try {
       this._stopPolling();
       if (this._device) {
@@ -143,26 +147,26 @@ class BluetoothService {
     }
   }
 
-  isConnected() {
+  isConnected(): boolean {
     return this._device !== null;
   }
 
-  getConnectedDevice() {
+  getConnectedDevice(): BluetoothDevice | null {
     return this._device;
   }
 
-  // ─── Auto-reconnect ──────────────────────────────────────────────────────────
+  // ─── Auto-reconnect ────────────────────────────────────────────────────────
 
-  async getLastDevice() {
+  async getLastDevice(): Promise<LastDevice | null> {
     try {
       const raw = await AsyncStorage.getItem(LAST_DEVICE_KEY);
-      return raw ? JSON.parse(raw) : null;
+      return raw ? (JSON.parse(raw) as LastDevice) : null;
     } catch {
       return null;
     }
   }
 
-  async autoReconnect() {
+  async autoReconnect(): Promise<BluetoothDevice | null> {
     const last = await this.getLastDevice();
     if (!last?.address) return null;
     try {
@@ -172,27 +176,19 @@ class BluetoothService {
     }
   }
 
-  // ─── JSON parsing helper ─────────────────────────────────────────────────────
+  // ─── JSON parsing helper ───────────────────────────────────────────────────
 
-  /**
-   * Try to extract and parse all { ... } JSON objects from a string.
-   * Handles partial frames by returning leftover suffix.
-   * Returns { objects: [...], remaining: string }
-   */
-  _extractJsonObjects(str) {
-    const objects = [];
+  private _extractJsonObjects(str: string): ExtractResult {
+    const objects: Record<string, unknown>[] = [];
     let remaining = str;
 
     while (true) {
-      // Find start of a JSON object
       const start = remaining.indexOf('{');
       if (start === -1) {
-        // No opening brace — discard everything before any potential next frame
         remaining = '';
         break;
       }
 
-      // Find the matching closing brace
       let depth = 0;
       let end = -1;
       for (let i = start; i < remaining.length; i++) {
@@ -207,36 +203,27 @@ class BluetoothService {
       }
 
       if (end === -1) {
-        // Incomplete object — keep from the opening brace onward in buffer
         remaining = remaining.slice(start);
         break;
       }
 
-      // We have a complete { ... } span
       const candidate = remaining.slice(start, end + 1);
       try {
-        const parsed = JSON.parse(candidate);
+        const parsed = JSON.parse(candidate) as Record<string, unknown>;
         objects.push(parsed);
       } catch {
-        // Malformed — skip this span and continue
         console.warn('[BT] Malformed JSON span skipped:', candidate.slice(0, 60));
       }
 
-      // Move past this object
       remaining = remaining.slice(end + 1);
     }
 
     return { objects, remaining };
   }
 
-  // ─── Data Streaming — polling approach ───────────────────────────────────────
+  // ─── Data Streaming — polling approach ────────────────────────────────────
 
-  /**
-   * Start polling the connected device for data every POLL_INTERVAL_MS ms.
-   * @param {function(Object): void} onData
-   * @param {function(Error): void} [onError]
-   */
-  startListening(onData, onError) {
+  startListening(onData: DataCallback, onError?: ErrorCallback): void {
     if (!this._device) {
       console.warn('[BT] Cannot listen — no device connected.');
       return;
@@ -245,7 +232,7 @@ class BluetoothService {
     this._stopPolling();
     this._dataBuffer = '';
     this._onDataCallback = onData;
-    this._onErrorCallback = onError;
+    this._onErrorCallback = onError ?? null;
 
     console.log('[BT] Starting data poll at', POLL_INTERVAL_MS, 'ms intervals');
 
@@ -256,34 +243,28 @@ class BluetoothService {
           return;
         }
 
-        // Check how many bytes are available
         const available = await this._device.available();
         if (!available || available <= 0) return;
 
-        // Read all available data as a string
         const chunk = await this._device.read();
         if (!chunk) return;
 
         console.log('[BT] Raw chunk received:', chunk.slice(0, 80));
 
-        // Append to buffer and extract complete JSON objects
         this._dataBuffer += chunk;
         const { objects, remaining } = this._extractJsonObjects(this._dataBuffer);
         this._dataBuffer = remaining;
 
         for (const obj of objects) {
           console.log('[BT] Parsed frame:', JSON.stringify(obj));
-          this._onDataCallback(obj);
+          this._onDataCallback?.(obj);
         }
       } catch (err) {
-        const msg = err.message || String(err);
-        // "Not connected" means the device dropped — stop polling immediately
+        const msg = (err as Error).message || String(err);
         if (msg.includes('Not connected') || msg.includes('not connected')) {
           console.log('[BT] Device disconnected — stopping poll.');
           this._stopPolling();
-          if (this._onErrorCallback) {
-            this._onErrorCallback(new Error('Device disconnected'));
-          }
+          this._onErrorCallback?.(new Error('Device disconnected'));
         } else {
           console.warn('[BT] Poll read error:', msg);
         }
@@ -291,7 +272,7 @@ class BluetoothService {
     }, POLL_INTERVAL_MS);
   }
 
-  _stopPolling() {
+  private _stopPolling(): void {
     if (this._pollTimer) {
       clearInterval(this._pollTimer);
       this._pollTimer = null;
@@ -301,16 +282,9 @@ class BluetoothService {
     this._onErrorCallback = null;
   }
 
-  // ─── Command Sending ─────────────────────────────────────────────────────────
+  // ─── Command Sending ───────────────────────────────────────────────────────
 
-  /**
-   * Send a JSON command to the ESP32.
-   * Supported shapes:
-   *   { mode: 'auto' | 'manual' }
-   *   { motor: 0 | 1 }
-   *   { heater: 0 | 1 }
-   */
-  async sendCommand(commandObj) {
+  async sendCommand(commandObj: Record<string, unknown>): Promise<boolean> {
     if (!this._device) {
       throw new Error('No device connected');
     }

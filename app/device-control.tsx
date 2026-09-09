@@ -3,8 +3,23 @@ import { View, Text, ScrollView, TouchableOpacity, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-// Using a basic slider if available, otherwise mock with interactive views. We'll mock for simplicity without community-slider dep.
-import Slider from '@react-native-community/slider';
+// Slider is mocked with a tap-based row to avoid requiring @react-native-community/slider
+import { Pressable } from 'react-native';
+const Slider = ({ value, minimumValue, maximumValue, step, onValueChange, minimumTrackTintColor, thumbTintColor }: {
+  value: number; minimumValue: number; maximumValue: number; step: number;
+  onValueChange: (v: number) => void; minimumTrackTintColor?: string; thumbTintColor?: string;
+}) => {
+  const steps = [];
+  for (let v = minimumValue; v <= maximumValue; v += step) steps.push(v);
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      {steps.map((v) => (
+        <Pressable key={v} onPress={() => onValueChange(v)}
+          style={{ flex: 1, height: v === value ? 20 : 12, borderRadius: 6, backgroundColor: v <= value ? (minimumTrackTintColor ?? '#f43f5e') : '#e5e7eb' }} />
+      ))}
+    </View>
+  );
+};
 
 export default function DeviceControlScreen() {
     const router = useRouter();
