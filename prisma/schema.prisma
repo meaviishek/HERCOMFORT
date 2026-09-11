@@ -9,7 +9,7 @@ datasource db {
 // ============== USER MANAGEMENT ==============
 
 model User {
-  id                String    @id @default(uuid())
+  id                String    @id @default(uuid()) @map("_id")
   email             String    @unique
   password          String    // hashed
   firstName         String
@@ -57,7 +57,7 @@ model User {
 // ============== DEVICE MANAGEMENT ==============
 
 model Device {
-  id                String    @id @default(uuid())
+  id                String    @id @default(uuid()) @map("_id")
   userId            String
   deviceSerial      String    @unique
   deviceName        String    @default("Pain Relief Band")
@@ -101,7 +101,7 @@ model Device {
 }
 
 model DeviceLog {
-  id          String   @id @default(uuid())
+  id          String   @id @default(uuid()) @map("_id")
   deviceId    String
   logType     DeviceLogType
   message     String
@@ -119,7 +119,7 @@ model DeviceLog {
 // ============== MENSTRUAL CYCLE TRACKING ==============
 
 model CycleEntry {
-  id              String    @id @default(uuid())
+  id              String    @id @default(uuid()) @map("_id")
   userId          String
   
   // Cycle Identification
@@ -150,13 +150,13 @@ model CycleEntry {
 }
 
 model SymptomLog {
-  id          String   @id @default(uuid())
+  id          String   @id @default(uuid()) @map("_id")
   userId      String
   loggedAt    DateTime @default(now())
   
   // Daily symptom tracking
   symptomType SymptomType
-  severity    Int        @db.SmallInt // 1-10
+  severity    Int        // 1-10
   duration    Int?       // minutes, if applicable
   location    String?    // e.g., "lower abdomen", "back"
   notes       String?
@@ -174,11 +174,11 @@ model SymptomLog {
 // ============== PAIN MANAGEMENT & AI ==============
 
 model PainLog {
-  id              String    @id @default(uuid())
+  id              String    @id @default(uuid()) @map("_id")
   userId          String
   
   // Pain Assessment
-  painLevel       Int       @db.SmallInt // 0-10 scale
+  painLevel       Int       // 0-10 scale
   painLocation    String[]  // e.g., ["abdomen", "lower_back", "thighs"]
   painType        PainType  // cramping, sharp, dull, etc.
   
@@ -210,12 +210,12 @@ model PainLog {
 }
 
 model AIPrediction {
-  id              String    @id @default(uuid())
+  id              String    @id @default(uuid()) @map("_id")
   userId          String
   
   // Prediction Details
   predictionType  PredictionType
-  predictedPainLevel Int?   @db.SmallInt // 0-10
+  predictedPainLevel Int?   // 0-10
   confidenceScore Float     // 0.0 - 1.0
   
   // Context used for prediction
@@ -228,7 +228,7 @@ model AIPrediction {
   recommendedDuration     Int       // minutes
   
   // Actual outcome (for model improvement)
-  actualPainLevel   Int?    @db.SmallInt
+  actualPainLevel   Int?    // 0-10
   wasAccurate       Boolean?
   userFeedback      String?
   
@@ -244,7 +244,7 @@ model AIPrediction {
 // ============== THERAPY SESSIONS ==============
 
 model TherapySession {
-  id              String    @id @default(uuid())
+  id              String    @id @default(uuid()) @map("_id")
   userId          String
   deviceId        String?
   painLogId       String?   @unique
@@ -258,7 +258,7 @@ model TherapySession {
   heatLevel       HeatLevel
   targetTemp      Float     // Celsius
   vibrationPattern VibrationPattern
-  vibrationIntensity Int    @db.SmallInt // 0-100
+  vibrationIntensity Int    // 0-100
   
   // Timing
   startedAt       DateTime  @default(now())
@@ -275,9 +275,9 @@ model TherapySession {
   maxTempReached  Float?
   
   // Effectiveness
-  painBefore      Int       @db.SmallInt
-  painAfter       Int?      @db.SmallInt
-  userSatisfaction Int?     @db.SmallInt // 1-5 rating
+  painBefore      Int       // 0-10
+  painAfter       Int?      // 0-10
+  userSatisfaction Int?     // 1-5 rating
   
   status          SessionStatus @default(ACTIVE)
   
@@ -295,7 +295,7 @@ model TherapySession {
 // ============== HEALTH STATISTICS & INSIGHTS ==============
 
 model HealthStats {
-  id                      String   @id @default(uuid())
+  id                      String   @id @default(uuid()) @map("_id")
   userId                  String   @unique
   
   // Aggregated Cycle Data
@@ -330,7 +330,7 @@ model HealthStats {
 // ============== SAFETY & FEEDBACK ==============
 
 model SafetyAlert {
-  id              String    @id @default(uuid())
+  id              String    @id @default(uuid()) @map("_id")
   userId          String
   
   alertType       SafetyAlertType
@@ -357,11 +357,11 @@ model SafetyAlert {
 }
 
 model UserFeedback {
-  id              String    @id @default(uuid())
+  id              String    @id @default(uuid()) @map("_id")
   userId          String
   
   feedbackType    FeedbackType
-  rating          Int?      @db.SmallInt // 1-5
+  rating          Int?      // 1-5
   comment         String?
   category        String?   // "app", "device", "therapy", "ai"
   

@@ -4,19 +4,20 @@
   "description": "",
   "type": "module",
   "main": "index.js",
-"scripts": {
-  "start": "node src/index.js",
-  "dev": "nodemon src/index.js",
-  "test": "echo \"Error: no test specified\" && exit 1",
-  "postinstall": "npx prisma generate",
-  "build": "npx prisma generate"
-},
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prisma": "prisma",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate",
+    "build": "prisma generate"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
-
   "dependencies": {
-    "@prisma/client": "^7.4.2",
+    "@prisma/client": "5.22.0",
     "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",
@@ -35,5 +36,13 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "prisma": "5.22.0"
+  },
+  "allowScripts": {
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "prisma@5.22.0": true
   }
 }
