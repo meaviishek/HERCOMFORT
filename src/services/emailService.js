@@ -1,4 +1,4 @@
-const { createFreshTransporter } = require('../config/mail.config');
+import { createFreshTransporter } from '../config/mail.config.js';
 
 // ─── Email Templates ──────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ function otpEmailHtml(name, otp, email) {
                 HerComfort
               </h1>
               <p style="margin: 6px 0 0 0; color: #fff0f3; font-size: 14px; font-weight: 500;">
-                Personal Health & Wellness Companion
+                Personal Health &amp; Wellness Companion
               </p>
             </td>
           </tr>
@@ -90,7 +90,7 @@ function otpEmailHtml(name, otp, email) {
  * @param {string} name  - recipient's name
  * @param {string} otp   - 6-digit verification code
  */
-async function sendOtpEmail(email, name, otp) {
+export async function sendOtpEmail(email, name, otp) {
   const adminEmail = process.env.MAIL_ADMINISTRATOR || 'no-reply@hercomfort.com';
   const from = `"HerComfort Security" <${adminEmail}>`;
 
@@ -127,5 +127,3 @@ async function sendOtpEmail(email, name, otp) {
   console.log(`[Email] High-priority OTP sent to ${email} — messageId: ${info.messageId}`);
   return info;
 }
-
-module.exports = { sendOtpEmail };

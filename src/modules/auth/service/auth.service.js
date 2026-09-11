@@ -1,8 +1,8 @@
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
-const User = require('../../../models/User');
-const { sendOtpEmail } = require('../../../services/emailService');
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import User from '../../../models/User.js';
+import { sendOtpEmail } from '../../../services/emailService.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const OTP_TTL_MS = 10 * 60 * 1000;   // 10 minutes
@@ -383,4 +383,4 @@ const AuthService = {
   },
 };
 
-module.exports = AuthService;
+export default AuthService;

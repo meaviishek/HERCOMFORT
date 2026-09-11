@@ -1,15 +1,15 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const cookieParser = require('cookie-parser');
-const passport = require('passport');
+import express from 'express';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import cookieParser from 'cookie-parser';
+import passport from 'passport';
 
-const readingsRouter = require('./modules/readings/readings.routes');
-const authRouter     = require('./modules/auth/auth.routes');
-const cycleRouter    = require('./modules/cycle/cycle.routes');
-const wellnessRouter = require('./modules/wellness/wellness.routes');
+import readingsRouter from './modules/readings/readings.routes.js';
+import authRouter     from './modules/auth/auth.routes.js';
+import cycleRouter    from './modules/cycle/cycle.routes.js';
+import wellnessRouter from './modules/wellness/wellness.routes.js';
 
-const { createFreshTransporter } = require('./config/mail.config');
+import { createFreshTransporter } from './config/mail.config.js';
 
 const app = express();
 
@@ -61,4 +61,4 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-module.exports = app;
+export default app;

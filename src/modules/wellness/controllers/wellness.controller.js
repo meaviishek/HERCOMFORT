@@ -1,70 +1,79 @@
-﻿const svc = require("../service/wellness.service");
+import * as svc from '../service/wellness.service.js';
 
 const ok  = (res, data) => res.json({ success: true, data });
 const err = (res, e, status = 500) => res.status(status).json({ success: false, message: e.message || "Server error" });
 
 // ── Mood ──────────────────────────────────────────────────────────────────────
-exports.logMood = async (req, res) => {
+export const logMood = async (req, res) => {
   try { ok(res, await svc.logMood(req.user._id, req.body)); } catch (e) { err(res, e); }
 };
-exports.getMoodHistory = async (req, res) => {
+export const getMoodHistory = async (req, res) => {
   try { ok(res, await svc.getMoodHistory(req.user._id, Number(req.query.days) || 30)); } catch (e) { err(res, e); }
 };
 
 // ── Sleep ─────────────────────────────────────────────────────────────────────
-exports.logSleep = async (req, res) => {
+export const logSleep = async (req, res) => {
   try { ok(res, await svc.logSleep(req.user._id, req.body)); } catch (e) { err(res, e); }
 };
-exports.getSleepHistory = async (req, res) => {
+export const getSleepHistory = async (req, res) => {
   try { ok(res, await svc.getSleepHistory(req.user._id, Number(req.query.days) || 30)); } catch (e) { err(res, e); }
 };
-exports.getSleepInsights = async (req, res) => {
+export const getSleepInsights = async (req, res) => {
   try { ok(res, await svc.getSleepInsights(req.user._id)); } catch (e) { err(res, e); }
 };
 
 // ── Hydration ─────────────────────────────────────────────────────────────────
-exports.logHydration = async (req, res) => {
+export const logHydration = async (req, res) => {
   try { ok(res, await svc.logHydration(req.user._id, req.body)); } catch (e) { err(res, e); }
 };
-exports.addHydration = async (req, res) => {
+export const addHydration = async (req, res) => {
   try { ok(res, await svc.addHydration(req.user._id, req.body)); } catch (e) { err(res, e); }
 };
-exports.getTodayHydration = async (req, res) => {
+export const getTodayHydration = async (req, res) => {
   try { ok(res, await svc.getTodayHydration(req.user._id)); } catch (e) { err(res, e); }
 };
-exports.getHydrationHistory = async (req, res) => {
+export const getHydrationHistory = async (req, res) => {
   try { ok(res, await svc.getHydrationHistory(req.user._id, Number(req.query.days) || 7)); } catch (e) { err(res, e); }
 };
 
 // ── Symptoms ──────────────────────────────────────────────────────────────────
-exports.logSymptoms = async (req, res) => {
+export const logSymptoms = async (req, res) => {
   try { ok(res, await svc.logSymptoms(req.user._id, req.body)); } catch (e) { err(res, e); }
 };
-exports.getSymptomsHistory = async (req, res) => {
+export const getSymptomsHistory = async (req, res) => {
   try { ok(res, await svc.getSymptomsHistory(req.user._id, Number(req.query.days) || 30)); } catch (e) { err(res, e); }
 };
-exports.getSymptomInsights = async (req, res) => {
+export const getSymptomInsights = async (req, res) => {
   try { ok(res, await svc.getSymptomInsights(req.user._id)); } catch (e) { err(res, e); }
 };
 
 // ── Medications ───────────────────────────────────────────────────────────────
-exports.getMedications = async (req, res) => {
+export const getMedications = async (req, res) => {
   try { ok(res, await svc.getMedications(req.user._id)); } catch (e) { err(res, e); }
 };
-exports.addMedication = async (req, res) => {
+export const addMedication = async (req, res) => {
   try { ok(res, await svc.addMedication(req.user._id, req.body)); } catch (e) { err(res, e); }
 };
-exports.updateMedication = async (req, res) => {
+export const updateMedication = async (req, res) => {
   try { ok(res, await svc.updateMedication(req.user._id, req.params.id, req.body)); } catch (e) { err(res, e); }
 };
-exports.deleteMedication = async (req, res) => {
+export const deleteMedication = async (req, res) => {
   try { ok(res, await svc.deleteMedication(req.user._id, req.params.id)); } catch (e) { err(res, e); }
 };
 
 // ── Overview ─────────────────────────────────────────────────────────────────
-exports.getDailySummary = async (req, res) => {
+export const getDailySummary = async (req, res) => {
   try { ok(res, await svc.getDailySummary(req.user._id, req.query.date)); } catch (e) { err(res, e); }
 };
-exports.getWeeklyOverview = async (req, res) => {
+export const getWeeklyOverview = async (req, res) => {
   try { ok(res, await svc.getWeeklyOverview(req.user._id)); } catch (e) { err(res, e); }
+};
+
+export default {
+  logMood, getMoodHistory,
+  logSleep, getSleepHistory, getSleepInsights,
+  logHydration, addHydration, getTodayHydration, getHydrationHistory,
+  logSymptoms, getSymptomsHistory, getSymptomInsights,
+  getMedications, addMedication, updateMedication, deleteMedication,
+  getDailySummary, getWeeklyOverview,
 };

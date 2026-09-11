@@ -1,4 +1,4 @@
-﻿const mongoose = require("mongoose");
+import mongoose from 'mongoose';
 
 const cycleSchema = new mongoose.Schema(
   {
@@ -61,4 +61,4 @@ const cycleSchema = new mongoose.Schema(
 
 cycleSchema.index({ user: 1, startDate: -1 });
 
-module.exports = mongoose.model("Cycle", cycleSchema);
+export default mongoose.model("Cycle", cycleSchema);

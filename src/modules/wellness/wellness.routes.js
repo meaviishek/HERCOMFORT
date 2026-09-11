@@ -1,7 +1,8 @@
-const express   = require("express");
-const router    = express.Router();
-const ctrl      = require("./controllers/wellness.controller");
-const authGuard = require("../auth/auth.guard");
+import express from 'express';
+import ctrl from './controllers/wellness.controller.js';
+import authGuard from '../auth/auth.guard.js';
+
+const router = express.Router();
 
 // All routes require JWT
 router.use(authGuard);
@@ -36,4 +37,4 @@ router.post  ("/medications",       ctrl.addMedication);
 router.patch ("/medications/:id",   ctrl.updateMedication);
 router.delete("/medications/:id",   ctrl.deleteMedication);
 
-module.exports = router;
+export default router;

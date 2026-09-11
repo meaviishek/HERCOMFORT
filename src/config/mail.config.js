@@ -1,5 +1,5 @@
-const nodemailer = require('nodemailer');
-const { google } = require('googleapis');
+import nodemailer from 'nodemailer';
+import { google } from 'googleapis';
 
 const OAuth2 = google.auth.OAuth2;
 
@@ -17,7 +17,7 @@ oauth2Client.setCredentials({
  * Creates a fresh Nodemailer transporter with a new OAuth2 access token.
  * Called on every send so we never use an expired token (tokens expire ~1 hour).
  */
-const createFreshTransporter = async () => {
+export const createFreshTransporter = async () => {
   const tokenResponse = await oauth2Client.getAccessToken();
   const accessToken =
     typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
@@ -41,7 +41,4 @@ const createFreshTransporter = async () => {
   });
 };
 
-module.exports = {
-  createFreshTransporter,
-  default: createFreshTransporter,
-};
+export default createFreshTransporter;

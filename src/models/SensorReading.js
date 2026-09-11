@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 /**
  * SensorReading — stores every JSON packet received from the ESP32 PainReliefBand.
@@ -71,4 +71,4 @@ const sensorReadingSchema = new mongoose.Schema(
 // Compound index for efficient device + time queries
 sensorReadingSchema.index({ deviceId: 1, receivedAt: -1 });
 
-module.exports = mongoose.model('SensorReading', sensorReadingSchema);
+export default mongoose.model('SensorReading', sensorReadingSchema);

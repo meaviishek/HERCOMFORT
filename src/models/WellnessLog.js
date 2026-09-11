@@ -1,4 +1,4 @@
-﻿const mongoose = require("mongoose");
+import mongoose from 'mongoose';
 
 // ── WellnessLog ───────────────────────────────────────────────────────────────
 // One document per user per calendar date.
@@ -45,4 +45,4 @@ const wellnessLogSchema = new mongoose.Schema(
 // Compound unique index – one log per user per day
 wellnessLogSchema.index({ user: 1, date: 1 }, { unique: true });
 
-module.exports = mongoose.model("WellnessLog", wellnessLogSchema);
+export default mongoose.model("WellnessLog", wellnessLogSchema);

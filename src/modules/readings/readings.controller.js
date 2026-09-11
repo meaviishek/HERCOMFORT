@@ -1,12 +1,12 @@
-const SensorReading = require('../../models/SensorReading');
-const { getIO } = require('../../config/socket');
+import SensorReading from '../../models/SensorReading.js';
+import { getIO } from '../../config/socket.js';
 
 /**
  * POST /api/readings
  * Store one sensor reading from the mobile app (received via BT) and
  * broadcast it to all connected web-dashboard Socket.io clients.
  */
-async function createReading(req, res) {
+export async function createReading(req, res) {
   try {
     const {
       deviceId,
@@ -105,7 +105,7 @@ async function createReading(req, res) {
  * Paginated list of all readings, newest first.
  * Query params: deviceId, page (default 1), limit (default 50)
  */
-async function getReadings(req, res) {
+export async function getReadings(req, res) {
   try {
     const { deviceId, page = 1, limit = 50 } = req.query;
     const filter = deviceId ? { deviceId } : {};
@@ -140,7 +140,7 @@ async function getReadings(req, res) {
  * GET /api/readings/latest
  * Returns the most recent reading per device (or for a specific deviceId).
  */
-async function getLatestReading(req, res) {
+export async function getLatestReading(req, res) {
   try {
     const { deviceId } = req.query;
     const filter = deviceId ? { deviceId } : {};
@@ -165,7 +165,7 @@ async function getLatestReading(req, res) {
  * Returns aggregate stats for a device over the last N hours.
  * Query params: deviceId (required), hours (default 24)
  */
-async function getStats(req, res) {
+export async function getStats(req, res) {
   try {
     const { deviceId, hours = 24 } = req.query;
     if (!deviceId) {
@@ -200,5 +200,3 @@ async function getStats(req, res) {
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }
-
-module.exports = { createReading, getReadings, getLatestReading, getStats };

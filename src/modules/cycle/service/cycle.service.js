@@ -1,10 +1,10 @@
-﻿/**
+/**
  * cycle.service.js
  * Business logic for period / cycle tracking.
  */
 
-const Cycle = require("../../../models/Cycle");
-const dayjs = require("dayjs");
+import Cycle from '../../../models/Cycle.js';
+import dayjs from 'dayjs';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -179,16 +179,6 @@ async function deleteCycle(userId, cycleId) {
 
 /**
  * Get dashboard / home summary for a user.
- * Returns:
- *  - currentCycle (ongoing or last cycle)
- *  - nextPeriodDate
- *  - daysUntilNextPeriod
- *  - averageCycleLength
- *  - averagePeriodDuration
- *  - fertileWindowStart / End
- *  - ovulationDate
- *  - isIrregular
- *  - cycleDay (day within current cycle)
  */
 async function getSummary(userId) {
   const cycles = await Cycle.find({ user: userId })
@@ -291,7 +281,7 @@ async function getCalendarData(userId, { year, month }) {
   return cycles;
 }
 
-module.exports = {
+export default {
   startPeriod,
   endPeriod,
   logFlow,

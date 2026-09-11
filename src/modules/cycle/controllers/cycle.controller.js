@@ -1,9 +1,9 @@
-﻿/**
+/**
  * cycle.controller.js
  * HTTP handlers for the cycle tracker API.
  */
 
-const CycleService = require("../service/cycle.service");
+import CycleService from '../service/cycle.service.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const ok = (res, data, status = 200) =>
@@ -126,7 +126,7 @@ async function deleteCycle(req, res, next) {
   }
 }
 
-module.exports = {
+export default {
   getSummary,
   startPeriod,
   endPeriod,

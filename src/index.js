@@ -1,9 +1,10 @@
-require('dotenv').config();
-const http = require('http');
-const mongoose = require('mongoose');
+import dotenv from 'dotenv';
+dotenv.config();
 
-const app = require('./app');
-const { initSocket } = require('./config/socket');
+import http from 'http';
+import mongoose from 'mongoose';
+import app from './app.js';
+import { initSocket } from './config/socket.js';
 
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.DATABASE_URL;

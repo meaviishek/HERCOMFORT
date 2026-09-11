@@ -1,6 +1,6 @@
-﻿const express = require("express");
-const cycleController = require("./controllers/cycle.controller");
-const authGuard = require("../auth/auth.guard");
+import express from 'express';
+import cycleController from './controllers/cycle.controller.js';
+import authGuard from '../auth/auth.guard.js';
 
 const router = express.Router();
 
@@ -31,4 +31,4 @@ router.patch("/:id", cycleController.updateCycle);
 /** DELETE /api/cycle/:id — delete a cycle */
 router.delete("/:id", cycleController.deleteCycle);
 
-module.exports = router;
+export default router;

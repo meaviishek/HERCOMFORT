@@ -1,10 +1,10 @@
-const express = require('express');
-const {
+import express from 'express';
+import {
   createReading,
   getReadings,
   getLatestReading,
   getStats,
-} = require('./readings.controller');
+} from './readings.controller.js';
 
 const router = express.Router();
 
@@ -20,4 +20,4 @@ router.get('/stats', getStats);
 // GET    /api/readings          — paginated list (?deviceId=&page=1&limit=50)
 router.get('/', getReadings);
 
-module.exports = router;
+export default router;

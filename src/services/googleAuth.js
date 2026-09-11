@@ -9,7 +9,7 @@
  * verify the audience, making it vulnerable to token injection.
  */
 
-const { OAuth2Client } = require('google-auth-library');
+import { OAuth2Client } from 'google-auth-library';
 
 // Use the Web Client ID to verify mobile-issued tokens.
 // Google issues ID tokens with the Android client ID as `aud` when
@@ -33,7 +33,7 @@ const client = new OAuth2Client(WEB_CLIENT_ID);
  * }>}
  * @throws {Error} if the token is invalid, expired, or wrong audience.
  */
-async function verifyGoogleIdToken(idToken) {
+export async function verifyGoogleIdToken(idToken) {
   // Build the audience list — include both web and android client IDs
   const audience = [WEB_CLIENT_ID];
   if (ANDROID_CLIENT_ID && ANDROID_CLIENT_ID !== 'YOUR_GOOGLE_ANDROID_CLIENT_ID') {
@@ -75,5 +75,3 @@ async function verifyGoogleIdToken(idToken) {
     email_verified: payload.email_verified,
   };
 }
-
-module.exports = { verifyGoogleIdToken };

@@ -1,10 +1,10 @@
-const express = require('express');
-const passport = require('passport');
-const { Strategy: GoogleStrategy } = require('passport-google-oauth20');
+import express from 'express';
+import passport from 'passport';
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 
-const authController = require('./controllers/auth.controller');
-const authGuard = require('./auth.guard');
-const AuthService = require('./service/auth.service');
+import authController from './controllers/auth.controller.js';
+import authGuard from './auth.guard.js';
+import AuthService from './service/auth.service.js';
 
 const router = express.Router();
 
@@ -112,4 +112,4 @@ router.get(
 /** POST /api/auth/google/mobile — exchange Google idToken for app tokens */
 router.post('/google/mobile', authController.googleMobileLogin);
 
-module.exports = router;
+export default router;

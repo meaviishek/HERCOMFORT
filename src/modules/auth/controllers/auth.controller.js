@@ -1,5 +1,5 @@
-const AuthService = require('../service/auth.service');
-const { verifyGoogleIdToken } = require('../../../services/googleAuth');
+import AuthService from '../service/auth.service.js';
+import { verifyGoogleIdToken } from '../../../services/googleAuth.js';
 
 /**
  * Standard JSON response helper
@@ -327,7 +327,7 @@ function me(req, res) {
   return respond(res, 200, true, 'User fetched.', { user: req.user });
 }
 
-module.exports = {
+export default {
   register,
   login,
   refresh,

@@ -3,6 +3,8 @@
  * Initialized once in index.js and exported for use across controllers.
  */
 
+import { Server } from 'socket.io';
+
 let io = null;
 
 /**
@@ -11,8 +13,7 @@ let io = null;
  * @param {object} [opts] - Socket.io server options
  * @returns {import('socket.io').Server}
  */
-function initSocket(httpServer, opts = {}) {
-  const { Server } = require('socket.io');
+export function initSocket(httpServer, opts = {}) {
   io = new Server(httpServer, {
     cors: {
       origin: process.env.SOCKET_CORS_ORIGIN || '*',
@@ -42,11 +43,9 @@ function initSocket(httpServer, opts = {}) {
  * Throws if initSocket() was not called first.
  * @returns {import('socket.io').Server}
  */
-function getIO() {
+export function getIO() {
   if (!io) {
     throw new Error('Socket.io has not been initialized. Call initSocket(httpServer) first.');
   }
   return io;
 }
-
-module.exports = { initSocket, getIO };
