@@ -18,7 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import Svg, { Polyline, Line } from "react-native-svg";
-import { BleManager, Device, State } from "react-native-ble-plx";
+import { useBluetooth, CONNECTION_STATUS } from "../context/BluetoothContext";
 import { T } from "../constants/theme";
 
 const TARGET_NAME  = "Her Comfort";
@@ -28,6 +28,8 @@ const GRAPH_POINTS = 60;
 const { width }    = Dimensions.get("window");
 const GRAPH_W      = width - 48;
 const GRAPH_H      = 130;
+
+const nativeBleAvailable = Platform.OS !== "web" && (NativeModules.RNBluetoothClassic != null || (NativeModules as any).BleClient != null);
 
 interface EspPayload { temperature: number; gx: number; gy: number; gz: number; }
 interface HistPoint extends EspPayload { ts: number; }
@@ -63,12 +65,14 @@ function LineGraph({ data, color, label, unit, yMin, yMax }: {
   );
 }
 
-function StatCard({ emoji, label, value, unit, bg, accent }: {
-  emoji: string; label: string; value: string; unit: string; bg: string; accent: string;
+function StatCard({ icon, label, value, unit, bg, accent }: {
+  icon: string; label: string; value: string; unit: string; bg: string; accent: string;
 }) {
   return (
     <View style={[s.statCard, { backgroundColor: bg, borderColor: accent + "30" }]}>
-      <Text style={s.statEmoji}>{emoji}</Text>
+      <View style={{ marginBottom: 6 }}>
+        <Feather name={icon as any} size={22} color={accent} />
+      </View>
       <Text style={s.statLbl}>{label}</Text>
       <Text style={[s.statVal, { color: accent }]}>{value}</Text>
       <Text style={[s.statUnit, { color: accent + "99" }]}>{unit}</Text>
@@ -78,346 +82,63 @@ function StatCard({ emoji, label, value, unit, bg, accent }: {
 
 export default function BleDeviceScreen() {
   const router = useRouter();
-  const [nativeBleAvailable, setNativeBleAvailable] = useState(true);
-  const [isDemo,             setIsDemo]             = useState(false);
-  const [bleReady,           setBleReady]           = useState(false);
-  const [scanning,           setScanning]           = useState(false);
-  const [found,              setFound]              = useState<Device[]>([]);
-  const [connected,          setConnected]          = useState(false);
-  const [device,             setDevice]             = useState<Device | null>(null);
-  const [connecting,         setConnecting]         = useState(false);
-  const [statusMsg,          setStatusMsg]          = useState("Tap Scan to find your device");
-  const [live,               setLive]               = useState<EspPayload | null>(null);
-  const [rawJson,            setRawJson]            = useState("");
-  const [history,            setHistory]            = useState<HistPoint[]>([]);
-  const [rxCount,            setRxCount]            = useState(0);
-  const [lastRx,             setLastRx]             = useState<Date | null>(null);
+  const {
+    connectedDevice,
+    connectionStatus,
+    connectionError,
+    isScanning,
+    liveData,
+    history,
+    packetCount,
+    scan,
+    connect,
+    disconnect,
+    discoveredDevices,
+  } = useBluetooth();
 
-  const pulse           = useRef(new Animated.Value(1)).current;
-  const managerRef      = useRef<BleManager | null>(null);
-  const subRef          = useRef<{ remove: () => void } | null>(null);
-  const devRef          = useRef<Device | null>(null);
-  const foundIds        = useRef(new Set<string>());
-  const scanTimeout     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const demoTickRef     = useRef(0);
+  const connected = connectionStatus === CONNECTION_STATUS.CONNECTED;
+  const connecting = connectionStatus === CONNECTION_STATUS.CONNECTING;
+  const scanning = isScanning;
 
-  // Lazily and safely create BleManager (returns null if native module is absent, e.g. in Expo Go)
-  function getBleManager(): BleManager | null {
-    if (managerRef.current) return managerRef.current;
-    if (!NativeModules?.BlePlx && !NativeModules?.BleClientManager) return null;
-    try {
-      managerRef.current = new BleManager();
-      return managerRef.current;
-    } catch (e) {
-      console.warn("[BLE] Native BleManager init failed:", e);
-      return null;
-    }
-  }
-
-  useEffect(() => { devRef.current = device; }, [device]);
+  const pulse = useRef(new Animated.Value(1)).current;
+  const [selectedDevId, setSelectedDevId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!live) return;
+    if (!liveData) return;
     Animated.sequence([
       Animated.timing(pulse, { toValue: 1.35, duration: 100, useNativeDriver: true }),
-      Animated.timing(pulse, { toValue: 1.0,  duration: 200, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1.0, duration: 200, useNativeDriver: true }),
     ]).start();
-  }, [rxCount]);
+  }, [packetCount]);
 
-  useEffect(() => {
-    const mgr = getBleManager();
-    if (!mgr) {
-      setNativeBleAvailable(false);
-      setBleReady(false);
-      setStatusMsg("Expo Go detected. Native BLE unavailable. Use Demo Simulator.");
-      return;
-    }
-    setNativeBleAvailable(true);
-    let sub: { remove: () => void } | null = null;
-    try {
-      sub = mgr.onStateChange((st) => setBleReady(st === State.PoweredOn), true);
-    } catch (e) {
-      console.warn("[BLE] onStateChange error:", e);
-      setNativeBleAvailable(false);
-    }
-    return () => {
-      try { sub?.remove(); } catch {}
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (scanTimeout.current) clearTimeout(scanTimeout.current);
-      if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
+  const handleConnectDevice = useCallback(
+    async (dev: any) => {
+      setSelectedDevId(dev.id || dev.address);
       try {
-        managerRef.current?.stopDeviceScan();
-        subRef.current?.remove();
-        devRef.current?.cancelConnection().catch(() => {});
-        managerRef.current?.destroy();
-      } catch {}
-      managerRef.current = null;
-    };
-  }, []);
-
-  // ─── Demo Mode Simulation ──────────────────────────────────────────────────
-  const startDemo = useCallback(() => {
-    if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
-    setIsDemo(true);
-    setConnected(true);
-    setConnecting(false);
-    setScanning(false);
-    setDevice({ id: "ESP32-DEMO-SIM", name: "Her Comfort (Demo ESP32)" } as any);
-    setStatusMsg("Connected — Her Comfort (Demo Simulator)");
-
-    demoTickRef.current = 0;
-    demoIntervalRef.current = setInterval(() => {
-      demoTickRef.current += 1;
-      const t = demoTickRef.current;
-      // Realistic simulation: body temp ~ 36.6°C ± 0.4°C with slight sine fluctuation
-      const temp = 36.6 + Math.sin(t * 0.15) * 0.35 + (Math.random() - 0.5) * 0.08;
-      const gx = Math.sin(t * 0.25) * 1.8 + (Math.random() - 0.5) * 0.15;
-      const gy = Math.cos(t * 0.25) * 1.4 + (Math.random() - 0.5) * 0.15;
-      const gz = Math.sin(t * 0.1) * 0.5 + (Math.random() - 0.5) * 0.1;
-
-      const payload: EspPayload = {
-        temperature: parseFloat(temp.toFixed(2)),
-        gx: parseFloat(gx.toFixed(2)),
-        gy: parseFloat(gy.toFixed(2)),
-        gz: parseFloat(gz.toFixed(2)),
-      };
-      const jsonStr = JSON.stringify(payload);
-
-      setLive(payload);
-      setRawJson(jsonStr);
-      setRxCount(c => c + 1);
-      setLastRx(new Date());
-      setHistory(prev => {
-        const next = [...prev, { ...payload, ts: Date.now() }];
-        return next.length > GRAPH_POINTS * 2 ? next.slice(-GRAPH_POINTS * 2) : next;
-      });
-    }, 400);
-  }, []);
-
-  const stopDemo = useCallback(() => {
-    if (demoIntervalRef.current) {
-      clearInterval(demoIntervalRef.current);
-      demoIntervalRef.current = null;
-    }
-    setIsDemo(false);
-    setConnected(false);
-    setDevice(null);
-    setLive(null);
-    setHistory([]);
-    setRxCount(0);
-    setStatusMsg("Demo stopped. Tap below to simulate or scan.");
-  }, []);
-
-  async function reqPerms() {
-    if (Platform.OS !== "android") return true;
-    try {
-      if ((Platform.Version as number) >= 31) {
-        const res = await PermissionsAndroid.requestMultiple([
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-        ]);
-        return Object.values(res).every(r => r === PermissionsAndroid.RESULTS.GRANTED);
+        await connect(dev);
+      } catch (e) {
+        console.error('Connection error:', e);
+      } finally {
+        setSelectedDevId(null);
       }
-      const r = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-      return r === PermissionsAndroid.RESULTS.GRANTED;
-    } catch { return false; }
-  }
+    },
+    [connect]
+  );
 
-  const startScan = useCallback(async () => {
-    if (scanning || connected) return;
+  const tempH = history.map((h) => Number(h.temp ?? h.temperature ?? 36.6));
+  const gxH = history.map((h) => Number(h.gx ?? 0));
+  const gyH = history.map((h) => Number(h.gy ?? 0));
+  const gzH = history.map((h) => Number(h.gz ?? 0));
 
-    const mgr = getBleManager();
-    if (!mgr) {
-      Alert.alert(
-        "Expo Go Limitation",
-        "react-native-ble-plx requires native code not included in Expo Go.\n\nTo connect physical ESP32 hardware, run:\nnpx expo run:android\n\nWould you like to start Demo Simulator to test graphs and telemetry now?",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Start Demo Mode", onPress: startDemo },
-        ]
-      );
-      return;
-    }
-
-    if (!bleReady) { Alert.alert("Bluetooth Off", "Enable Bluetooth first."); return; }
-    if (!(await reqPerms())) { Alert.alert("Permission Denied", "Location required for BLE scan."); return; }
-    setFound([]); foundIds.current.clear();
-    setScanning(true);
-    setStatusMsg('Scanning for "Her Comfort"…');
-
-    try {
-      mgr.startDeviceScan(null, { allowDuplicates: false }, (err, dev) => {
-        if (err) { setScanning(false); setStatusMsg("Scan error: " + err.message); return; }
-        if (!dev) return;
-
-        if (!foundIds.current.has(dev.id)) {
-          foundIds.current.add(dev.id);
-
-          const devName = dev.name || dev.localName || "";
-          const hasService = (dev.serviceUUIDs || []).some(
-            (u) => u.toLowerCase() === SERVICE_UUID.toLowerCase()
-          );
-          const isTarget =
-            hasService ||
-            devName.toLowerCase().includes("her comfort") ||
-            devName.toLowerCase().includes("hercomfort") ||
-            devName.toLowerCase().includes("esp32");
-
-          // Put matching ESP32 devices at the top of the list!
-          setFound((prev) => (isTarget ? [dev, ...prev] : [...prev, dev]));
-        }
-      });
-      scanTimeout.current = setTimeout(() => {
-        try { mgr.stopDeviceScan(); } catch {}
-        setScanning(false);
-        setStatusMsg(foundIds.current.size === 0
-          ? "No device found. Make sure ESP32 is powered on."
-          : "Scan done. Tap a device to connect.");
-      }, 10_000);
-    } catch (e: any) {
-      setScanning(false);
-      setStatusMsg("Scan failed: " + (e?.message ?? "Unknown error"));
-    }
-  }, [scanning, connected, bleReady, startDemo]);
-
-  const stopScan = useCallback(() => {
-    if (scanTimeout.current) clearTimeout(scanTimeout.current);
-    try { getBleManager()?.stopDeviceScan(); } catch {}
-    setScanning(false);
-    setStatusMsg("Scan stopped.");
-  }, []);
-
-  const connectDevice = useCallback(async (dev: Device) => {
-    try { getBleManager()?.stopDeviceScan(); } catch {}
-    if (scanTimeout.current) clearTimeout(scanTimeout.current);
-    setScanning(false);
-    setConnecting(true);
-    const targetName = dev.name || dev.localName || dev.id;
-    setStatusMsg("Connecting to " + targetName + "…");
-
-    // Android BLE stack requires ~250ms after stopping scan before initiating GATT connect
-    await new Promise((resolve) => setTimeout(resolve, 250));
-
-    try {
-      let conn: Device;
-      try {
-        conn = await dev.connect({ autoConnect: false });
-      } catch (firstErr: any) {
-        console.warn("[BLE] First connection attempt failed, retrying in 400ms:", firstErr);
-        await new Promise((resolve) => setTimeout(resolve, 400));
-        conn = await dev.connect({ autoConnect: false });
+  const live = liveData
+    ? {
+        temperature: Number(liveData.temp ?? liveData.temperature ?? 36.6),
+        gx: Number(liveData.gx ?? 0),
+        gy: Number(liveData.gy ?? 0),
+        gz: Number(liveData.gz ?? 0),
       }
+    : null;
 
-      // Small pause before MTU request
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
-      try {
-        await conn.requestMTU(256);
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      } catch (mtuErr) {
-        console.log("[BLE] MTU request skipped/unsupported:", mtuErr);
-      }
-
-      await conn.discoverAllServicesAndCharacteristics();
-      setDevice(conn);
-      setConnected(true);
-      setStatusMsg("Connected to " + (conn.name || conn.localName || conn.id));
-
-      // Find target service & char case-insensitively
-      const services = await conn.services();
-      let serviceUuid = SERVICE_UUID;
-      let charUuid = CHAR_UUID;
-
-      const matchedService = services.find(
-        (s) => s.uuid.toLowerCase() === SERVICE_UUID.toLowerCase()
-      );
-      if (matchedService) {
-        serviceUuid = matchedService.uuid;
-        const chars = await matchedService.characteristics();
-        const matchedChar = chars.find(
-          (c) => c.uuid.toLowerCase() === CHAR_UUID.toLowerCase()
-        );
-        if (matchedChar) {
-          charUuid = matchedChar.uuid;
-        }
-      }
-
-      // Read initial characteristic value immediately
-      try {
-        const initChar = await conn.readCharacteristicForService(serviceUuid, charUuid);
-        if (initChar?.value) {
-          const decoded = atob(initChar.value);
-          const parsed: EspPayload = JSON.parse(decoded);
-          setLive(parsed);
-          setRawJson(decoded);
-          setRxCount((c) => c + 1);
-          setLastRx(new Date());
-          setHistory((prev) => [...prev, { ...parsed, ts: Date.now() }].slice(-GRAPH_POINTS * 2));
-        }
-      } catch (readErr) {
-        console.log("[BLE] Initial read error (will await notification):", readErr);
-      }
-
-      const sub = conn.monitorCharacteristicForService(serviceUuid, charUuid, (err, char) => {
-        if (err) {
-          console.warn("[BLE] Monitor error:", err.message);
-          return;
-        }
-        if (!char?.value) return;
-        try {
-          const decoded = atob(char.value);
-          const parsed: EspPayload = JSON.parse(decoded);
-          setLive(parsed);
-          setRawJson(decoded);
-          setRxCount((c) => c + 1);
-          setLastRx(new Date());
-          setHistory((prev) => {
-            const next = [...prev, { ...parsed, ts: Date.now() }];
-            return next.length > GRAPH_POINTS * 2 ? next.slice(-GRAPH_POINTS * 2) : next;
-          });
-        } catch {}
-      });
-      subRef.current = sub;
-      conn.onDisconnected(() => {
-        subRef.current?.remove();
-        setConnected(false); setDevice(null); setLive(null);
-        setStatusMsg("Disconnected. Tap Scan to reconnect.");
-      });
-    } catch (e: any) {
-      console.error("[BLE] Connect failed:", e);
-      Alert.alert(
-        "Connection Failed",
-        (e?.message ?? "Could not connect to device.") +
-          "\n\n⚠️ IMPORTANT: ESP32 NimBLE allows only 1 connection at a time. If nRF Connect (or another BLE app) is currently connected to the device, please tap DISCONNECT in that app first, then try again here."
-      );
-      setStatusMsg("Connection failed: " + (e?.message ?? "Try again"));
-    } finally {
-      setConnecting(false);
-    }
-  }, []);
-
-  const disconnect = useCallback(async () => {
-    if (isDemo) {
-      stopDemo();
-      return;
-    }
-    subRef.current?.remove();
-    try { await devRef.current?.cancelConnection(); } catch {}
-    setConnected(false); setDevice(null); setLive(null);
-    setHistory([]); setRxCount(0); setFound([]); foundIds.current.clear();
-    setStatusMsg("Disconnected. Tap Scan to reconnect.");
-  }, [isDemo, stopDemo]);
-
-  const tempH = history.map(h => h.temperature);
-  const gxH   = history.map(h => h.gx);
-  const gyH   = history.map(h => h.gy);
-  const gzH   = history.map(h => h.gz);
 
   return (
     <SafeAreaView style={s.root}>
@@ -438,25 +159,16 @@ export default function BleDeviceScreen() {
       </View>
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-        {/* Expo Go notice banner */}
+        {/* Native Bluetooth Environment notice banner */}
         {!nativeBleAvailable && (
           <View style={s.warnBanner}>
             <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
               <Feather name="alert-triangle" size={20} color="#d97706" style={{ marginTop: 2 }} />
               <View style={{ flex: 1 }}>
-                <Text style={s.warnTitle}>Expo Go: Native BLE Not Bundled</Text>
+                <Text style={s.warnTitle}>Native Bluetooth Hardware</Text>
                 <Text style={s.warnTxt}>
-                  Bluetooth hardware requires a native build (<Text style={{ fontFamily: "monospace", fontWeight: "700" }}>npx expo run:android</Text>).
-                  You can use Demo Simulator to test all charts, live telemetry, and UI right now in Expo Go!
+                  Bluetooth hardware requires a native build. Install the standalone APK or run native Android dev client.
                 </Text>
-                <TouchableOpacity
-                  style={[s.demoBtn, { backgroundColor: isDemo ? "#ef4444" : T.pink.primary }]}
-                  onPress={isDemo ? stopDemo : startDemo}
-                  activeOpacity={0.85}
-                >
-                  <Feather name={isDemo ? "stop-circle" : "play-circle"} size={16} color="#fff" />
-                  <Text style={s.demoBtnTxt}>{isDemo ? "Stop Demo Simulator" : "⚡ Start ESP32 Demo Simulator"}</Text>
-                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -470,41 +182,49 @@ export default function BleDeviceScreen() {
               transform: [{ scale: pulse }],
             }]} />
             <Text style={s.statusTxt}>
-              {connected ? `Connected — ${device?.name ?? device?.id}` : scanning ? "Scanning…" : statusMsg}
+              {connected
+                ? `Connected — ${connectedDevice?.name ?? connectedDevice?.address ?? (connectedDevice as any)?.id}`
+                : scanning
+                ? "Scanning for Her Comfort…"
+                : connectionError
+                ? `Error: ${connectionError}`
+                : "Tap Scan to find your device"}
             </Text>
           </View>
-          {connected && lastRx && (
-            <Text style={s.rxTxt}>{rxCount} packets · Last: {lastRx.toLocaleTimeString()}</Text>
+          {connected && (
+            <Text style={s.rxTxt}>{packetCount} packets received</Text>
           )}
         </View>
 
         {/* Scan controls */}
         {!connected && (
           <>
-            <TouchableOpacity onPress={scanning ? stopScan : startScan}
-              style={[s.scanBtn, { backgroundColor: scanning ? "#ef4444" : T.pink.primary }]} activeOpacity={0.85}>
-              <Feather name={scanning ? "x-circle" : "bluetooth"} size={18} color="#fff" />
-              <Text style={s.scanBtnTxt}>{scanning ? "Stop Scan" : "Scan for ESP32"}</Text>
+            <TouchableOpacity onPress={scan} disabled={scanning}
+              style={[s.scanBtn, { backgroundColor: scanning ? "#9ca3af" : T.pink.primary }]} activeOpacity={0.85}>
+              {scanning ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Feather name="bluetooth" size={18} color="#fff" />
+              )}
+              <Text style={s.scanBtnTxt}>{scanning ? "Scanning…" : "Scan for ESP32"}</Text>
             </TouchableOpacity>
 
-            {(scanning || found.length > 0) && (
+            {(scanning || discoveredDevices.length > 0) && (
               <View>
                 <Text style={s.sectionTitle}>
-                  {found.length > 0 ? `Found ${found.length} device${found.length > 1 ? "s" : ""}` : "Searching…"}
+                  {discoveredDevices.length > 0 ? `Found ${discoveredDevices.length} device${discoveredDevices.length > 1 ? "s" : ""}` : "Searching…"}
                 </Text>
-                {scanning && found.length === 0 && (
+                {scanning && discoveredDevices.length === 0 && (
                   <View style={s.scanRow}>
                     <ActivityIndicator size="small" color={T.pink.primary} />
                     <Text style={s.scanRowTxt}>Looking for "Her Comfort"…</Text>
                   </View>
                 )}
-                {found.map(dev => {
+                {discoveredDevices.map((dev: any) => {
                   const devName = dev.name || dev.localName || "";
-                  const hasService = (dev.serviceUUIDs || []).some(
-                    (u) => u.toLowerCase() === SERVICE_UUID.toLowerCase()
-                  );
+                  const devId = dev.address || dev.id || "";
                   const isMatch =
-                    hasService ||
+                    Boolean(dev.isHerComfort) ||
                     devName.toLowerCase().includes("her comfort") ||
                     devName.toLowerCase().includes("hercomfort") ||
                     devName.toLowerCase().includes("esp32");
@@ -515,8 +235,10 @@ export default function BleDeviceScreen() {
                     ? "Her Comfort (ESP32)"
                     : "BLE Device (N/A)";
 
+                  const isThisConnecting = connecting && selectedDevId === devId;
+
                   return (
-                    <TouchableOpacity key={dev.id} onPress={() => connectDevice(dev)} disabled={connecting}
+                    <TouchableOpacity key={devId} onPress={() => handleConnectDevice(dev)} disabled={connecting}
                       style={[s.devCard, isMatch && { borderColor: T.pink.primary, backgroundColor: "#fff5f8" }]} activeOpacity={0.8}>
                       <View style={[s.devIcon, isMatch && { backgroundColor: T.pink.primary + "20" }]}>
                         <Feather name={isMatch ? "activity" : "cpu"} size={22} color={T.pink.primary} />
@@ -530,14 +252,14 @@ export default function BleDeviceScreen() {
                             </View>
                           )}
                         </View>
-                        <Text style={s.devId}>{dev.id}</Text>
+                        <Text style={s.devId}>{devId}</Text>
                         {dev.rssi != null && (
                           <Text style={s.devRssi}>
                             {dev.rssi} dBm · {dev.rssi > -60 ? "Excellent" : dev.rssi > -75 ? "Good" : "Weak"}
                           </Text>
                         )}
                       </View>
-                      {connecting
+                      {isThisConnecting
                         ? <ActivityIndicator size="small" color={T.pink.primary} />
                         : <View style={[s.connBtn, isMatch && { backgroundColor: T.pink.primary }]}><Text style={s.connBtnTxt}>Connect</Text></View>
                       }
@@ -553,33 +275,33 @@ export default function BleDeviceScreen() {
         {connected && live && (
           <>
             <View style={s.statsRow}>
-              <StatCard emoji="🌡️" label="Temperature" value={live.temperature.toFixed(2)} unit="°C" bg="#fff0f0" accent="#ef4444" />
-              <StatCard emoji="🔄" label="Gyro X"      value={live.gx.toFixed(2)}          unit="°/s" bg="#fff0f4" accent={T.pink.primary} />
-              <StatCard emoji="⬆️" label="Gyro Y"      value={live.gy.toFixed(2)}          unit="°/s" bg="#f0f4ff" accent="#6366f1" />
-              <StatCard emoji="↙️" label="Gyro Z"      value={live.gz.toFixed(2)}          unit="°/s" bg="#e0f7ff" accent="#0ea5e9" />
+              <StatCard icon="thermometer" label="Temperature" value={live.temperature.toFixed(2)} unit="°C" bg="#fff0f0" accent="#ef4444" />
+              <StatCard icon="activity"    label="Gyro X"      value={live.gx.toFixed(2)}          unit="°/s" bg="#fff0f4" accent={T.pink.primary} />
+              <StatCard icon="navigation"  label="Gyro Y"      value={live.gy.toFixed(2)}          unit="°/s" bg="#f0f4ff" accent="#6366f1" />
+              <StatCard icon="compass"     label="Gyro Z"      value={live.gz.toFixed(2)}          unit="°/s" bg="#e0f7ff" accent="#0ea5e9" />
             </View>
 
-            <Text style={s.sectionTitle}>🌡️ Temperature</Text>
+            <Text style={s.sectionTitle}>Temperature Telemetry</Text>
             <LineGraph data={tempH} color="#ef4444" label="Temperature" unit="°C"
               yMin={tempH.length ? Math.min(30, Math.min(...tempH) - 1) : 30}
               yMax={tempH.length ? Math.max(42, Math.max(...tempH) + 1) : 42} />
 
-            <Text style={[s.sectionTitle, { marginTop: 20 }]}>📊 Gyroscope</Text>
+            <Text style={[s.sectionTitle, { marginTop: 20 }]}>Gyroscope Tri-Axis</Text>
             <LineGraph data={gxH} color={T.pink.primary} label="Gyro X" unit="°/s" yMin={-10} yMax={10} />
             <LineGraph data={gyH} color="#6366f1"         label="Gyro Y" unit="°/s" yMin={-10} yMax={10} />
             <LineGraph data={gzH} color="#0ea5e9"         label="Gyro Z" unit="°/s" yMin={-10} yMax={10} />
 
-            <Text style={[s.sectionTitle, { marginTop: 20 }]}>📡 Raw Packet</Text>
+            <Text style={[s.sectionTitle, { marginTop: 20 }]}>Raw Packet</Text>
             <View style={s.rawCard}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#22c55e" }} />
                 <Text style={{ flex: 1, fontSize: 11, fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.8 }}>
-                  Latest BLE payload
+                  Latest Sensor Payload
                 </Text>
-                <Text style={{ fontSize: 11, fontWeight: "600", color: "#22c55e" }}>{rxCount} rx</Text>
+                <Text style={{ fontSize: 11, fontWeight: "600", color: "#22c55e" }}>{packetCount} rx</Text>
               </View>
               <Text style={s.rawJson} selectable>
-                {(() => { try { return JSON.stringify(JSON.parse(rawJson), null, 2); } catch { return rawJson; } })()}
+                {JSON.stringify(liveData, null, 2)}
               </Text>
             </View>
           </>
@@ -601,7 +323,7 @@ export default function BleDeviceScreen() {
         )}
 
         <View style={s.guide}>
-          <Text style={s.guideTitle}>ℹ️ How to connect</Text>
+          <Text style={s.guideTitle}>How to connect</Text>
           <Text style={s.guideStep}>1. Power on the ESP32 device</Text>
           <Text style={s.guideStep}>2. Tap "Scan for ESP32" above</Text>
           <Text style={s.guideStep}>3. Select "Her Comfort" from the list</Text>

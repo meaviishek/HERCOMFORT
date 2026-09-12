@@ -164,9 +164,55 @@ async function getLatestReading(deviceId: string): Promise<SensorReading | null>
   }
 }
 
+/**
+ * POST a batch of continuous sensor readings to the backend.
+ */
+async function postBatchReadings(readings: SensorReading[]): Promise<boolean> {
+  if (!readings || readings.length === 0) return false;
+  try {
+    await api.post('/api/readings/batch', { readings });
+    return true;
+  } catch (err) {
+    console.warn('[ApiService] postBatchReadings network error:', err);
+    return false;
+  }
+}
+
+/**
+ * POST a finished session record to MongoDB backend.
+ */
+async function saveSessionRecord(sessionData: Record<string, any>): Promise<any | null> {
+  try {
+    const res = await api.post('/api/readings/sessions', sessionData);
+    return res.data?.data || null;
+  } catch (err) {
+    console.warn('[ApiService] saveSessionRecord error:', err);
+    return null;
+  }
+}
+
+/**
+ * GET session history from MongoDB backend.
+ */
+async function getRemoteSessions(params?: { userId?: string; deviceId?: string }): Promise<any[]> {
+  try {
+    const res = await api.get<{ success: boolean; data: any[] }>('/api/readings/sessions', {
+      params,
+    });
+    return res.data?.data || [];
+  } catch (err) {
+    console.warn('[ApiService] getRemoteSessions error:', err);
+    return [];
+  }
+}
+
 export default {
   postReading,
+  postBatchReadings,
+  saveSessionRecord,
+  getRemoteSessions,
   flushOfflineQueue,
   getQueueSize,
   getLatestReading,
 };
+

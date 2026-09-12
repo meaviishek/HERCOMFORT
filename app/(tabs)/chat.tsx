@@ -223,13 +223,10 @@ export default function DeviceScannerScreen() {
     isScanning,
     liveData,
     packetCount,
-    isDemo,
     toast,
     scan,
     connect,
     disconnect,
-    startDemo,
-    stopDemo,
   } = useBluetooth();
 
   const isConnected = connectionStatus === CONNECTION_STATUS.CONNECTED;
@@ -386,29 +383,14 @@ export default function DeviceScannerScreen() {
                     </TouchableOpacity>
                   </>
                 ) : (
-                  <>
-                    <TouchableOpacity
-                      style={s.heroBtnPrimary}
-                      onPress={isDemo ? stopDemo : startDemo}
-                      activeOpacity={0.85}
-                    >
-                      <Ionicons name="flash" size={16} color="#fff" />
-                      <Text style={s.heroBtnPrimaryTxt}>
-                        {isDemo ? 'Stop Demo' : '⚡ Simulate Her Comfort'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={s.heroBtnSecondary}
-                      onPress={() => router.push('/ble-device' as any)}
-                      activeOpacity={0.8}
-                    >
-                      <Feather name="bluetooth" size={15} color={T.pink.primary} />
-                      <Text style={[s.heroBtnSecondaryTxt, { color: T.pink.primary }]}>
-                        BLE Scan
-                      </Text>
-                    </TouchableOpacity>
-                  </>
+                  <TouchableOpacity
+                    style={s.heroBtnPrimary}
+                    onPress={() => router.push('/ble-device' as any)}
+                    activeOpacity={0.85}
+                  >
+                    <Feather name="bluetooth" size={16} color="#fff" />
+                    <Text style={s.heroBtnPrimaryTxt}>Connect Her Comfort</Text>
+                  </TouchableOpacity>
                 )}
               </View>
             </View>

@@ -1,14 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, Dimensions, Image, Animated } from 'react-native';
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '../context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
+export const ONBOARDING_COMPLETED_KEY = '@nari_onboarding_completed_v1';
 
 const onboardingData = [
     {
         id: 1,
-        image: null, // Placeholder for phone mockup
+        image: null,
         title: 'hercomfort! Your Personal\nPeriod Tracker',
         description: "Take control of your health with hercomfort. Track\nyour period, monitor ovulation, and gain\ninsights into your body's natural rhythms."
     },
@@ -28,28 +31,59 @@ const onboardingData = [
 
 export default function OnboardingScreen() {
     const router = useRouter();
+    const { isAuthenticated, isLoading, user } = useAuth();
     const [currentPage, setCurrentPage] = useState(0);
     const [showSplash, setShowSplash] = useState(true);
 
     const scrollViewRef = useRef<ScrollView>(null);
-    const spinValue = new Animated.Value(0);
+    const spinValue = useRef(new Animated.Value(0)).current;
 
-    // Splash screen timeout and loader animation
+    // Check onboarding and existing user status
     useEffect(() => {
-        Animated.loop(
+        // Spin animation for splash loader
+        const spinAnim = Animated.loop(
             Animated.timing(spinValue, {
                 toValue: 1,
                 duration: 1500,
                 useNativeDriver: true,
             })
-        ).start();
+        );
+        spinAnim.start();
 
-        const timer = setTimeout(() => {
+        const checkFlow = async () => {
+            try {
+                const hasOnboarded = await AsyncStorage.getItem(ONBOARDING_COMPLETED_KEY);
+
+                // Give 1.2s for clean brand presence
+                await new Promise((res) => setTimeout(res, 1200));
+
+                if (hasOnboarded === 'true') {
+                    // Existing user -> Bypass onboarding completely!
+                    if (isAuthenticated) {
+                        if (user && user.profileComplete === false) {
+                            router.replace('/complete-profile' as any);
+                        } else {
+                            router.replace('/(tabs)');
+                        }
+                    } else {
+                        router.replace('/login');
+                    }
+                    return;
+                }
+            } catch (err) {
+                console.warn('[Onboarding] Error checking completion state:', err);
+            }
+
+            // First time user -> Show onboarding
             setShowSplash(false);
-        }, 2000);
+        };
 
-        return () => clearTimeout(timer);
-    }, []);
+        if (!isLoading) {
+            checkFlow();
+        }
+
+        return () => spinAnim.stop();
+    }, [isLoading, isAuthenticated, user?.profileComplete]);
 
     const spin = spinValue.interpolate({
         inputRange: [0, 1],
@@ -71,7 +105,25 @@ export default function OnboardingScreen() {
             });
             setCurrentPage(nextIndex);
         } else {
-            router.push('/login');
+            handleCompleteOnboarding();
+        }
+    };
+
+    const handleCompleteOnboarding = async () => {
+        try {
+            await AsyncStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true');
+        } catch (e) {
+            console.warn('[Onboarding] Failed to persist completion flag:', e);
+        }
+
+        if (isAuthenticated) {
+            if (user && user.profileComplete === false) {
+                router.replace('/complete-profile' as any);
+            } else {
+                router.replace('/(tabs)');
+            }
+        } else {
+            router.replace('/login');
         }
     };
 
@@ -226,20 +278,20 @@ export default function OnboardingScreen() {
 
                 {/* Action Buttons */}
                 {currentPage === onboardingData.length - 1 ? (
-                    // Last Page - Full width button
-                    <Link href="/login" asChild>
-                        <Pressable className="bg-[#ff5b83] w-full py-[16px] rounded-xl items-center shadow-sm active:bg-[#e04f73]">
-                            <Text className="text-white font-bold text-base">Let's Get Started</Text>
-                        </Pressable>
-                    </Link>
+                    <Pressable
+                        onPress={handleCompleteOnboarding}
+                        className="bg-[#ff5b83] w-full py-[16px] rounded-xl items-center shadow-sm active:bg-[#e04f73]"
+                    >
+                        <Text className="text-white font-bold text-base">Let's Get Started</Text>
+                    </Pressable>
                 ) : (
-                    // Other Pages - Skip and Continue
                     <View className="flex-row justify-between space-x-4 gap-4">
-                        <Link href="/login" asChild>
-                            <Pressable className="flex-1 bg-[#fff0f4] py-[16px] rounded-xl items-center active:bg-[#ffe4eb]">
-                                <Text className="text-[#ff5b83] font-bold text-base">Skip</Text>
-                            </Pressable>
-                        </Link>
+                        <Pressable
+                            onPress={handleCompleteOnboarding}
+                            className="flex-1 bg-[#fff0f4] py-[16px] rounded-xl items-center active:bg-[#ffe4eb]"
+                        >
+                            <Text className="text-[#ff5b83] font-bold text-base">Skip</Text>
+                        </Pressable>
 
                         <Pressable
                             onPress={handleNext}

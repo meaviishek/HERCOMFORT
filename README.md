@@ -98,136 +98,141 @@ eas build:configure
 
 This creates an `eas.json` file.
 
-A typical configuration looks like:
+A typical configuration in `eas.json` looks like:
 
 ```json
 {
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://hercomfort-jet.vercel.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "295403776708-hfp3crgf487hto886nuu4pl7r7od6c7e.apps.googleusercontent.com"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://hercomfort-jet.vercel.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "295403776708-hfp3crgf487hto886nuu4pl7r7od6c7e.apps.googleusercontent.com"
+      }
     },
-    "production": {}
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://hercomfort-jet.vercel.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "295403776708-hfp3crgf487hto886nuu4pl7r7od6c7e.apps.googleusercontent.com"
+      }
+    }
   }
 }
 ```
 
 ### What these profiles mean
 
-#### `development`
+| Profile | Output | Requires Dev Server? | Use Case |
+| :--- | :--- | :--- | :--- |
+| **`preview`** | Standalone `.apk` | **NO** (Runs independently) | Install directly on any Android phone to test the real app & API |
+| **`development`** | Dev Client `.apk` | **YES** (`npx expo start --dev-client`) | Active code editing with hot-reloading |
+| **`production`** | `.apk` or `.aab` | **NO** | Final release for distribution |
 
-Used while actively developing the application.
+---
 
-```json
-"development": {
-  "developmentClient": true,
-  "distribution": "internal"
-}
-```
+# 7. WORKFLOW 1: Standalone Installable APK (No Dev Server Needed)
 
+Use this when you want an **installable `.apk` file** to put on a phone, share with testers, or use independently. The app will run completely standalone and call the live backend API.
 
+### Option A: Build via EAS Cloud (Recommended)
+
+```bash
 eas build --platform android --profile preview
-eas build --profile development --platform android
-eas build --platform android
+```
 
-This creates a **Development Build** that works with:
+* **What it does**:
+  1. Compiles the full JavaScript bundle and assets directly into the APK.
+  2. Embeds `EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` into the binary.
+  3. Generates a download link & QR code for the standalone `.apk`.
+  4. **No development server needed** — open the app and use it directly.
+
+### Option B: Build Standalone Release APK Locally (Offline)
+
+If you have Android Studio / Android SDK set up locally:
+
+```bash
+cd android
+./gradlew assembleRelease
+```
+Output location:
+`android/app/build/outputs/apk/release/app-release.apk`
+
+### Installing the APK:
+* Download directly onto your Android device from the EAS link/QR code.
+* Or install via USB using ADB:
+  ```bash
+  adb install path/to/app.apk
+  ```
+
+---
+
+# 8. WORKFLOW 2: Development & Expo Run (For Active Coding)
+
+Use this when you are **writing code** and want hot-reloading and instant live updates.
+
+### Option A: Run Directly on Connected Device / Emulator (`expo run`)
+
+To compile and launch the development app directly on your USB-connected Android phone or emulator:
+
+```bash
+npx expo run:android
+```
+
+### Option B: Build Development Client via EAS Cloud
+
+```bash
+eas build --profile development --platform android
+```
+
+### Starting the Development Server:
+
+Once your development build is installed on your phone:
 
 ```bash
 npx expo start --dev-client
 ```
 
-#### `preview`
+* Connect your phone to the same Wi-Fi network as your computer.
+* Any edits in `app/` or `components/` update immediately on the phone without rebuilding the APK.
 
-Used for testing a release-like version internally.
-
-#### `production`
-
-Used for the final production build that you intend to distribute to users.
-
----
-
-# 7. Build the Android Development App
-
-Run:
-
-```bash
-eas build --profile development --platform android
-```
-
-EAS will:
-
-1. Upload your project.
-2. Install dependencies.
-3. Build the Android application.
-4. Generate an APK/AAB depending on the configuration.
-5. Provide a link to the completed build.
-
-The first build can take some time.
-
----
-
-# 8. Install the Development Build
-
-Once the EAS build finishes, download the generated Android development build.
-
-Install the APK on your Android phone.
-
-You can also install it using ADB:
-
-```bash
-adb install path/to/app.apk
-```
-
-Make sure USB debugging is enabled if you're using a physical Android device.
-
----
-
-# 9. Start the Development Server
-
-After installing the development build, run:
-
-```bash
-npx expo start --dev-client
-```
-
-This starts Expo specifically for your **development build**.
-
-You can then open the application on your Android device.
-
----
-
-# 10. Important: Development Build vs Expo Go
-
-There are two different workflows.
-
-### Expo Go
+### Standard Expo Start (Expo Go):
 
 ```bash
 npx expo start
 ```
-
-Expo Go is a prebuilt app provided by Expo.
-
-It supports many Expo features but does **not** contain every native module your project may need.
-
-### Development Build
-
-```bash
-npx expo start --dev-client
-```
-
-A development build is your own customized version of the Expo app.
-
-It contains the native modules configured for your project.
-
-For projects using things such as Bluetooth, custom native libraries, or other native functionality, a development build is often the better choice.
+*(Note: Expo Go does not support custom native modules such as Bluetooth Classic).*
 
 ---
 
-# 11. Making Changes to Your App
+# 9. Quick Comparison of Commands
+
+| Goal | Command | Dev Server Required? |
+| :--- | :--- | :--- |
+| **Installable standalone APK (EAS)** | `eas build --platform android --profile preview` | **NO** (Runs independently) |
+| **Installable standalone APK (Local)** | `cd android && ./gradlew assembleRelease` | **NO** (Runs independently) |
+| **Run locally on connected device** | `npx expo run:android` | **YES** (Starts Metro dev server) |
+| **Build Dev Client (EAS)** | `eas build --profile development --platform android` | **YES** (`npx expo start --dev-client`) |
+| **Start Dev Server for Dev Client** | `npx expo start --dev-client` | **YES** |
+
+
+---
+
+# 10. Making Changes to Your App
 
 After you have installed the development build, you can normally make JavaScript/TypeScript changes without creating another Android build.
 
@@ -250,7 +255,7 @@ Your changes can be loaded through the development server.
 
 ---
 
-# 12. When Do You Need to Build Again?
+# 11. When Do You Need to Build Again?
 
 You **do not need to run EAS Build after every code change**.
 
@@ -297,15 +302,25 @@ eas build --profile development --platform android
 
 ---
 
-# 13. Local Android Build
+# 12. Local Android Build (Offline / On Your Machine)
 
 You can also build the Android application locally if you have Android Studio and the Android development environment configured.
 
-Run:
+### Run Local Development Build:
 
 ```bash
 npx expo run:android
 ```
+
+### Build Standalone Release APK Locally (No Dev Server):
+
+```bash
+cd android
+./gradlew assembleRelease
+```
+The generated APK will be in:
+`android/app/build/outputs/apk/release/app-release.apk`
+
 
 This will:
 
@@ -318,7 +333,7 @@ You may need to have an Android emulator running or an Android phone connected.
 
 ---
 
-# 14. Recommended Development Workflow
+# 13. Recommended Development Workflow
 
 Once your development build is already installed, your normal workflow should be:
 
