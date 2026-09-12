@@ -128,6 +128,11 @@ Used while actively developing the application.
 }
 ```
 
+
+eas build --platform android --profile preview
+eas build --profile development --platform android
+eas build --platform android
+
 This creates a **Development Build** that works with:
 
 ```bash

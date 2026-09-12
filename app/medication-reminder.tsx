@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal, Alert, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -38,7 +38,7 @@ export default function MedicationReminder() {
       const med = await wellnessService.addMedication({ name: name.trim(), dose, unit, time, frequency: freq, notes, active: true });
       setMeds(prev => [med, ...prev]);
       resetForm(); setModal(false);
-      Alert.alert("Added! 💊", `${med.name} added to your medications.`);
+      Alert.alert("Added!", `${med.name} added to your medications.`);
     } catch (e: any) { Alert.alert("Error", e?.response?.data?.message || "Could not save."); }
     finally { setSaving(false); }
   }
@@ -74,7 +74,7 @@ export default function MedicationReminder() {
           <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
             <Feather name="arrow-left" size={24} color={T.text.primary} />
           </TouchableOpacity>
-          <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary }}>💊 Medications</Text>
+          <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary }}>Medications</Text>
         </View>
         <TouchableOpacity onPress={() => { resetForm(); setModal(true); }}
           style={{ backgroundColor: "#10b981", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -85,8 +85,8 @@ export default function MedicationReminder() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
         {/* Disclaimer */}
-        <View style={{ backgroundColor: "#fffbeb", borderRadius: 16, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: "#fde68a", flexDirection: "row", gap: 8 }}>
-          <Text style={{ fontSize: 16 }}>⚠️</Text>
+        <View style={{ backgroundColor: "#fffbeb", borderRadius: 16, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: "#fde68a", flexDirection: "row", gap: 10, alignItems: "center" }}>
+          <Feather name="alert-triangle" size={18} color="#92400e" />
           <Text style={{ flex: 1, fontSize: 12, color: "#92400e", lineHeight: 18 }}>
             This reminder is for your reference only. Always follow your doctor's prescription. Never self-prescribe medications.
           </Text>
@@ -96,7 +96,9 @@ export default function MedicationReminder() {
 
         {activeMeds.length === 0 && (
           <View style={{ backgroundColor: T.pink.bg, borderRadius: 20, padding: 28, alignItems: "center", marginBottom: 20, borderWidth: 1, borderColor: T.pink.border }}>
-            <Text style={{ fontSize: 36, marginBottom: 8 }}>💊</Text>
+            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", marginBottom: 12, borderWidth: 1, borderColor: T.pink.border }}>
+              <Ionicons name="medkit-outline" size={28} color="#10b981" />
+            </View>
             <Text style={{ fontSize: 16, fontWeight: "900", color: T.text.primary, marginBottom: 4 }}>No Medications Added</Text>
             <Text style={{ fontSize: 13, color: T.text.muted, textAlign: "center" }}>Add your prescribed medications to keep track</Text>
           </View>
@@ -108,7 +110,7 @@ export default function MedicationReminder() {
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
                   <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: "#d1fae5", alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ fontSize: 20 }}>💊</Text>
+                    <Ionicons name="medkit-outline" size={20} color="#059669" />
                   </View>
                   <View>
                     <Text style={{ fontSize: 16, fontWeight: "900", color: T.text.primary }}>{m.name}</Text>
@@ -119,7 +121,12 @@ export default function MedicationReminder() {
                   <Ionicons name="time-outline" size={12} color="#059669" />
                   <Text style={{ fontSize: 12, fontWeight: "700", color: "#059669" }}>{m.time}</Text>
                 </View>
-                {m.notes ? <Text style={{ fontSize: 12, color: T.text.muted, marginTop: 8 }}>📝 {m.notes}</Text> : null}
+                {m.notes ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
+                    <Feather name="file-text" size={12} color={T.text.muted} />
+                    <Text style={{ fontSize: 12, color: T.text.muted }}>{m.notes}</Text>
+                  </View>
+                ) : null}
               </View>
               <View style={{ flexDirection: "column", gap: 8, marginLeft: 8 }}>
                 <TouchableOpacity onPress={() => toggleActive(m._id, m.active)} style={{ padding: 6 }}>
@@ -138,7 +145,9 @@ export default function MedicationReminder() {
             <Text style={{ fontSize: 16, fontWeight: "900", color: T.text.muted, marginBottom: 12 }}>Paused ({inactiveMeds.length})</Text>
             {inactiveMeds.map(m => (
               <View key={m._id} style={{ backgroundColor: T.bg.input, borderRadius: 16, padding: 14, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 12, opacity: 0.7 }}>
-                <Text style={{ fontSize: 24 }}>💊</Text>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="medkit-outline" size={18} color={T.text.muted} />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontWeight: "800", color: T.text.secondary }}>{m.name}</Text>
                   <Text style={{ fontSize: 12, color: T.text.muted }}>{m.dose} {m.unit} · {m.time}</Text>

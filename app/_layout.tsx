@@ -94,14 +94,14 @@ export default function RootLayout() {
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
           <AuthGate>
             <GlobalErrorBanner />
-            <Stack>
+            <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="login" options={{ headerShown: false }} />
               <Stack.Screen name="register" options={{ headerShown: false }} />
               <Stack.Screen name="verify-otp" options={{ headerShown: false }} />
               <Stack.Screen name="complete-profile" options={{ headerShown: false }} />
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="modal"       options={{ presentation: 'modal', title: 'Modal' }} />
+              <Stack.Screen name="modal"       options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
               <Stack.Screen name="ble-device" options={{ headerShown: false }} />
             </Stack>
             <StatusBar style="auto" />

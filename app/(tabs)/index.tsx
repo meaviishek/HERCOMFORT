@@ -25,10 +25,10 @@ function fmtShort(iso: string | Date | undefined | null) {
 
 // Phase meta – only label/subtitle changes; colour is ALWAYS pink
 const PHASE_META: Record<string, { label: string; subtitle: string }> = {
-  menstrual:  { label: "Period",     subtitle: "Take it easy today \u{1F338}" },
-  follicular: { label: "Follicular", subtitle: "Energy rising! \u{1F4AA}" },
-  ovulation:  { label: "Fertile",   subtitle: "Peak fertility window \u{1F31F}" },
-  luteal:     { label: "Luteal",    subtitle: "Slow down & rest \u{1F319}" },
+  menstrual:  { label: "Period",     subtitle: "Take it easy today" },
+  follicular: { label: "Follicular", subtitle: "Energy rising" },
+  ovulation:  { label: "Fertile",   subtitle: "Peak fertility window" },
+  luteal:     { label: "Luteal",    subtitle: "Slow down & rest" },
 };
 
 const FLOW_LEVELS: { label: string; value: FlowLevel; color: string }[] = [
@@ -322,10 +322,63 @@ export default function HomeScreen() {
                 {today.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
               </Text>
             </View>
-            <TouchableOpacity onPress={() => setShowCalendar(p => !p)}
-              style={{ backgroundColor: showCalendar ? T.pink.primary : "#fff", borderRadius: 12, padding: 10, elevation: 3, shadowColor: T.pink.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8 }}>
-              <Feather name="calendar" size={20} color={showCalendar ? "#fff" : T.pink.primary} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              {/* Bluetooth Connect Option */}
+              <TouchableOpacity
+                onPress={() => router.push("/ble-device" as any)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  backgroundColor: isDeviceConnected ? "#ecfdf5" : "#fff",
+                  borderRadius: 14,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  elevation: 3,
+                  shadowColor: isDeviceConnected ? "#10b981" : T.pink.primary,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 6,
+                  borderWidth: 1,
+                  borderColor: isDeviceConnected ? "#a7f3d0" : "#fce7f3",
+                }}
+                activeOpacity={0.85}
+              >
+                <Feather
+                  name="bluetooth"
+                  size={16}
+                  color={isDeviceConnected ? "#10b981" : T.pink.primary}
+                />
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: "800",
+                    color: isDeviceConnected ? "#065f46" : T.pink.primary,
+                  }}
+                >
+                  {isDeviceConnected ? "Connected" : "Pair Device"}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Calendar Toggle Button */}
+              <TouchableOpacity
+                onPress={() => setShowCalendar(p => !p)}
+                style={{
+                  backgroundColor: showCalendar ? T.pink.primary : "#fff",
+                  borderRadius: 14,
+                  padding: 10,
+                  elevation: 3,
+                  shadowColor: T.pink.primary,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 8,
+                  borderWidth: 1,
+                  borderColor: "#fce7f3",
+                }}
+              >
+                <Feather name="calendar" size={18} color={showCalendar ? "#fff" : T.pink.primary} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Phase badge */}
@@ -484,20 +537,23 @@ export default function HomeScreen() {
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 24 }}>
             {[
-              { emoji: "😊", label: "Mood",       route: "/mood-tracker",         bg: "#fff0f4", color: T.pink.primary },
-              { emoji: "💧", label: "Hydration",   route: "/hydration-tracker",    bg: "#e0f7ff", color: "#0ea5e9" },
-              { emoji: "💤", label: "Sleep",        route: "/sleep-tracker",        bg: "#f0f4ff", color: "#6366f1" },
-              { emoji: "📝", label: "Symptoms",    route: "/symptoms-tracker",     bg: "#fdf0ff", color: "#a855f7" },
-              { emoji: "🧘", label: "Exercises",   route: "/exercises",            bg: "#fff7f0", color: "#f97316" },
-              { emoji: "🎧", label: "Breathing",   route: "/breathing",            bg: "#f0fff4", color: "#22c55e" },
-              { emoji: "🍎", label: "Nutrition",   route: "/nutrition",            bg: "#fff0f0", color: "#ef4444" },
-              { emoji: "💊", label: "Meds",        route: "/medication-reminder",  bg: "#f0fff9", color: "#10b981" },
+              { icon: "pulse-outline",         label: "Symptoms",  sub: "15 markers", route: "/symptoms-tracker" },
+              { icon: "happy-outline",         label: "Mood",      sub: "Daily log",  route: "/mood-tracker" },
+              { icon: "water-outline",         label: "Hydration", sub: "2.5L goal",  route: "/hydration-tracker" },
+              { icon: "moon-outline",          label: "Sleep",     sub: "Rest index", route: "/sleep-tracker" },
+              { icon: "fitness-outline",       label: "Exercises", sub: "Spasm relief",route: "/exercises" },
+              { icon: "leaf-outline",          label: "Breathing", sub: "Calm vagus", route: "/breathing" },
+              { icon: "restaurant-outline",    label: "Nutrition", sub: "Phase diet", route: "/nutrition" },
+              { icon: "medkit-outline",        label: "Meds",      sub: "Schedule",   route: "/medication-reminder" },
             ].map(it => (
               <TouchableOpacity key={it.label} onPress={() => router.push(it.route as any)}
-                style={{ width: 80, height: 95, backgroundColor: it.bg, borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: it.color + "25", padding: 10 }}
-                activeOpacity={0.8}>
-                <Text style={{ fontSize: 30, marginBottom: 6 }}>{it.emoji}</Text>
-                <Text style={{ fontSize: 11, fontWeight: "800", color: it.color, textAlign: "center" }}>{it.label}</Text>
+                style={{ width: 94, height: 112, backgroundColor: "#ffffff", borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#fce7f3", padding: 10, shadowColor: T.pink.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 }}
+                activeOpacity={0.82}>
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fdf2f8", alignItems: "center", justifyContent: "center", marginBottom: 8, borderWidth: 1, borderColor: "#fce7f3" }}>
+                  <Ionicons name={it.icon as any} size={22} color={T.pink.primary} />
+                </View>
+                <Text style={{ fontSize: 12, fontWeight: "800", color: T.text.primary, textAlign: "center" }}>{it.label}</Text>
+                <Text style={{ fontSize: 9, fontWeight: "600", color: T.text.muted, marginTop: 2 }}>{it.sub}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -506,68 +562,88 @@ export default function HomeScreen() {
         {/* ── Quick Actions ──────────────────────────────────────────────── */}
         <View style={{ marginTop: 28, paddingHorizontal: 20 }}>
           <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary, marginBottom: 14 }}>Quick Relief</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingRight: 24 }}>
-            <TouchableOpacity onPress={() => router.push("/symptoms-tracker" as any)} style={{ backgroundColor: T.pink.bg, width: 130, height: 170, borderRadius: 28, padding: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: T.border.pink }}>
-              <View style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: T.pink.border, alignItems: "center", justifyContent: "center", marginBottom: 12, backgroundColor: "#fff" }}>
-                <Text style={{ fontSize: 24 }}>📝</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingRight: 24 }}>
+            {/* 1. Log Symptoms */}
+            <TouchableOpacity onPress={() => router.push("/symptoms-tracker" as any)}
+              style={{ backgroundColor: "#ffffff", width: 140, height: 165, borderRadius: 26, padding: 18, justifyContent: "space-between", borderWidth: 1, borderColor: "#fce7f3", shadowColor: T.pink.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 10, elevation: 3 }}
+              activeOpacity={0.85}>
+              <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#fdf2f8", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#fce7f3" }}>
+                <Ionicons name="pulse-outline" size={22} color={T.pink.primary} />
               </View>
-              <Text style={{ color: T.text.primary, fontWeight: "900", fontSize: 13, textAlign: "center", lineHeight: 18 }}>Log{"\n"}Symptoms</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/breathing" as any)} style={{ backgroundColor: "#fb923c", width: 150, height: 170, borderRadius: 28, padding: 18, overflow: "hidden", position: "relative" }}>
-              <View style={{ backgroundColor: "rgba(255,255,255,0.3)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start", marginBottom: 8 }}>
-                <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>5 min</Text>
-              </View>
-              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16, lineHeight: 20, paddingRight: 16 }}>Stress{"\n"}Meditation</Text>
-              <View style={{ position: "absolute", bottom: -24, right: -8, opacity: 0.9 }}>
-                <Ionicons name="leaf" size={80} color="white" />
+              <View>
+                <Text style={{ color: T.pink.primary, fontWeight: "800", fontSize: 11, letterSpacing: 0.4 }}>BIOMARKERS</Text>
+                <Text style={{ color: T.text.primary, fontWeight: "900", fontSize: 16, marginTop: 2, lineHeight: 20 }}>Log Daily{"\n"}Symptoms</Text>
               </View>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/exercises" as any)} style={{ backgroundColor: "#7c3aed", width: 150, height: 170, borderRadius: 28, padding: 18, overflow: "hidden", position: "relative" }}>
-              <View style={{ backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, alignSelf: "flex-start", marginBottom: 8 }}>
-                <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>10 min</Text>
+
+            {/* 2. Vagus Nerve Breathing */}
+            <TouchableOpacity onPress={() => router.push("/breathing" as any)}
+              style={{ backgroundColor: "#831843", width: 155, height: 165, borderRadius: 26, padding: 18, justifyContent: "space-between", position: "relative", overflow: "hidden", shadowColor: "#831843", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 4 }}
+              activeOpacity={0.85}>
+              <View style={{ backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, alignSelf: "flex-start" }}>
+                <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}>5 MIN SESSION</Text>
               </View>
-              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16, lineHeight: 20, width: "66%" }}>Relief{"\n"}Exercises</Text>
-              <View style={{ position: "absolute", bottom: -24, right: 0, opacity: 0.8 }}>
-                <Ionicons name="moon" size={76} color="white" />
+              <View>
+                <Text style={{ color: "#fbcfe8", fontWeight: "700", fontSize: 11 }}>VAGUS RELAXATION</Text>
+                <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16, marginTop: 2, lineHeight: 20 }}>Breathing{"\n"}Calm Protocol</Text>
+              </View>
+              <View style={{ position: "absolute", bottom: -16, right: -10, opacity: 0.15 }}>
+                <Ionicons name="leaf" size={88} color="white" />
+              </View>
+            </TouchableOpacity>
+
+            {/* 3. Physical Stretches */}
+            <TouchableOpacity onPress={() => router.push("/exercises" as any)}
+              style={{ backgroundColor: "#be185d", width: 155, height: 165, borderRadius: 26, padding: 18, justifyContent: "space-between", position: "relative", overflow: "hidden", shadowColor: "#be185d", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 4 }}
+              activeOpacity={0.85}>
+              <View style={{ backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, alignSelf: "flex-start" }}>
+                <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}>10 MIN ROUTINE</Text>
+              </View>
+              <View>
+                <Text style={{ color: "#fbcfe8", fontWeight: "700", fontSize: 11 }}>SPASM RELEASE</Text>
+                <Text style={{ color: "#ffffff", fontWeight: "900", fontSize: 16, marginTop: 2, lineHeight: 20 }}>Pelvic Relief{"\n"}Exercises</Text>
+              </View>
+              <View style={{ position: "absolute", bottom: -16, right: -8, opacity: 0.15 }}>
+                <Ionicons name="fitness" size={88} color="white" />
               </View>
             </TouchableOpacity>
           </ScrollView>
         </View>
 
-        {/* ── Her Comfort Device ─────────────────────────────────────────── */}
+        {/* ── Her Comfort Bluetooth Device Connect ── */}
         <View style={{ marginTop: 28, paddingHorizontal: 20 }}>
           <TouchableOpacity
-            onPress={() => router.push("/(tabs)/explore" as any)}
+            onPress={() => router.push("/ble-device" as any)}
             activeOpacity={0.85}
             style={{
-              backgroundColor: isDeviceConnected ? "#052e16" : "#0f172a",
+              backgroundColor: isDeviceConnected ? "#052e16" : "#831843",
               borderRadius: 28,
               padding: 20,
               flexDirection: "row",
               alignItems: "center",
               gap: 16,
-              shadowColor: isDeviceConnected ? "#16a34a" : "#000",
+              shadowColor: isDeviceConnected ? "#16a34a" : "#be185d",
               shadowOffset: { width: 0, height: 8 },
               shadowOpacity: 0.22,
               shadowRadius: 20,
               elevation: 8,
               overflow: "hidden",
               borderWidth: 1,
-              borderColor: isDeviceConnected ? "#22c55e40" : "transparent",
+              borderColor: isDeviceConnected ? "#22c55e40" : "#f472b640",
             }}
           >
             <View style={{
               position: "absolute", top: -30, right: -30,
               width: 120, height: 120, borderRadius: 60,
-              backgroundColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "25",
+              backgroundColor: (isDeviceConnected ? "#22c55e" : "#ffb3cc") + "25",
             }} />
             <View style={{
               width: 54, height: 54, borderRadius: 27,
-              backgroundColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "20",
+              backgroundColor: (isDeviceConnected ? "#22c55e" : "#ffffff") + "25",
               alignItems: "center", justifyContent: "center",
-              borderWidth: 1.5, borderColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "50",
+              borderWidth: 1.5, borderColor: (isDeviceConnected ? "#22c55e" : "#ffffff") + "50",
             }}>
-              <Feather name={isDeviceConnected ? "activity" : "bluetooth"} size={26} color={isDeviceConnected ? "#22c55e" : T.pink.primary} />
+              <Feather name="bluetooth" size={26} color="#ffffff" />
             </View>
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 }}>
@@ -576,22 +652,22 @@ export default function HomeScreen() {
                 </Text>
                 {isDeviceConnected && (
                   <View style={{ backgroundColor: "#22c55e30", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                    <Text style={{ color: "#4ade80", fontSize: 9, fontWeight: "800" }}>LIVE</Text>
+                    <Text style={{ color: "#4ade80", fontSize: 9, fontWeight: "800" }}>CONNECTED</Text>
                   </View>
                 )}
               </View>
-              <Text style={{ fontSize: 12, color: isDeviceConnected ? "#86efac" : "#94a3b8", fontWeight: "500" }}>
+              <Text style={{ fontSize: 12, color: isDeviceConnected ? "#86efac" : "#fce7f3", fontWeight: "500" }}>
                 {isDeviceConnected
-                  ? `🌡️ ${Number(liveData?.temp ?? liveData?.temperature ?? 36.5).toFixed(1)}°C · Gyro Active · Open Dashboard`
-                  : "Temperature · Gyroscope · Live Dashboard"}
+                  ? `Active · 🌡️ ${Number(liveData?.temp ?? liveData?.temperature ?? 36.5).toFixed(1)}°C · Tap to manage`
+                  : "Tap to scan & connect your Bluetooth relief band"}
               </Text>
             </View>
             <View style={{
-              backgroundColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "20",
+              backgroundColor: "rgba(255,255,255,0.2)",
               borderRadius: 12, padding: 8,
-              borderWidth: 1, borderColor: (isDeviceConnected ? "#22c55e" : T.pink.primary) + "40",
+              borderWidth: 1, borderColor: "rgba(255,255,255,0.3)",
             }}>
-              <Feather name="arrow-right" size={18} color={isDeviceConnected ? "#22c55e" : T.pink.primary} />
+              <Feather name="arrow-right" size={18} color="#ffffff" />
             </View>
           </TouchableOpacity>
         </View>

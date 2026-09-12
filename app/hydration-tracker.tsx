@@ -1,8 +1,8 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { View, Text, ScrollView, TouchableOpacity, Alert, Animated } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Feather } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { T } from "../constants/theme";
 import wellnessService, { HydrationEntry } from "../services/wellnessService";
 
@@ -64,7 +64,7 @@ export default function HydrationTracker() {
           <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
             <Feather name="arrow-left" size={24} color={T.text.primary} />
           </TouchableOpacity>
-          <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary }}>💧 Hydration Tracker</Text>
+          <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary }}>Hydration Tracker</Text>
         </View>
         <TouchableOpacity onPress={reset}>
           <Feather name="refresh-ccw" size={18} color={T.text.muted} />
@@ -83,7 +83,7 @@ export default function HydrationTracker() {
           </View>
           <View style={{ marginTop: 20, alignItems: "center" }}>
             {pct >= 1
-              ? <Text style={{ fontSize: 16, fontWeight: "900", color: "#22c55e" }}>🎉 Daily goal achieved!</Text>
+              ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><Ionicons name="checkmark-circle" size={18} color="#22c55e" /><Text style={{ fontSize: 16, fontWeight: "900", color: "#22c55e" }}>Daily goal achieved!</Text></View>
               : <Text style={{ fontSize: 14, color: T.text.muted, fontWeight: "600" }}>{(remaining/1000).toFixed(2)}L remaining to goal</Text>
             }
           </View>
@@ -102,31 +102,33 @@ export default function HydrationTracker() {
         {/* Quick add */}
         <Text style={{ fontSize: 15, fontWeight: "900", color: T.text.primary, marginBottom: 14 }}>Quick Add</Text>
         <View style={{ flexDirection: "row", gap: 12, marginBottom: 12 }}>
-          {[{ ml: 250, label: "+250 ml", icon: "☕" }, { ml: 500, label: "+500 ml", icon: "🥤" }].map(btn => (
+          {[{ ml: 250, label: "+250 ml", icon: "cafe-outline" }, { ml: 500, label: "+500 ml", icon: "water-outline" }].map(btn => (
             <TouchableOpacity key={btn.ml} onPress={() => add(btn.ml)}
-              style={{ flex: 1, backgroundColor: "#e0f7ff", borderRadius: 20, paddingVertical: 18, alignItems: "center", borderWidth: 2, borderColor: "#7dd3fc" }}>
-              <Text style={{ fontSize: 28, marginBottom: 4 }}>{btn.icon}</Text>
+              style={{ flex: 1, backgroundColor: "#ffffff", borderRadius: 20, paddingVertical: 18, alignItems: "center", borderWidth: 1.5, borderColor: "#7dd3fc", shadowColor: "#0ea5e9", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 }}>
+              <Ionicons name={btn.icon as any} size={26} color="#0284c7" style={{ marginBottom: 6 }} />
               <Text style={{ fontSize: 14, fontWeight: "900", color: "#0369a1" }}>{btn.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
         <View style={{ flexDirection: "row", gap: 12, marginBottom: 28 }}>
-          {[{ ml: 750, label: "+750 ml", icon: "🍶" }, { ml: 1000, label: "+1 L", icon: "💧" }].map(btn => (
+          {[{ ml: 750, label: "+750 ml", icon: "flask-outline" }, { ml: 1000, label: "+1 L", icon: "water" }].map(btn => (
             <TouchableOpacity key={btn.ml} onPress={() => add(btn.ml)}
-              style={{ flex: 1, backgroundColor: "#f0feff", borderRadius: 20, paddingVertical: 18, alignItems: "center", borderWidth: 2, borderColor: "#a5f3fc" }}>
-              <Text style={{ fontSize: 28, marginBottom: 4 }}>{btn.icon}</Text>
+              style={{ flex: 1, backgroundColor: "#ffffff", borderRadius: 20, paddingVertical: 18, alignItems: "center", borderWidth: 1.5, borderColor: "#a5f3fc", shadowColor: "#0ea5e9", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 }}>
+              <Ionicons name={btn.icon as any} size={26} color="#0891b2" style={{ marginBottom: 6 }} />
               <Text style={{ fontSize: 14, fontWeight: "900", color: "#0e7490" }}>{btn.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
         {/* Tip */}
-        <View style={{ backgroundColor: "#f0feff", borderRadius: 20, padding: 16, borderWidth: 1, borderColor: "#a5f3fc", flexDirection: "row", gap: 10 }}>
-          <Text style={{ fontSize: 20 }}>💡</Text>
+        <View style={{ backgroundColor: "#f0feff", borderRadius: 20, padding: 16, borderWidth: 1, borderColor: "#a5f3fc", flexDirection: "row", gap: 12, alignItems: "center" }}>
+          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="bulb-outline" size={18} color="#0891b2" />
+          </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 13, fontWeight: "800", color: "#0e7490", marginBottom: 4 }}>Hydration Tip</Text>
+            <Text style={{ fontSize: 13, fontWeight: "800", color: "#0e7490", marginBottom: 2 }}>Hydration Tip</Text>
             <Text style={{ fontSize: 13, color: T.text.muted, lineHeight: 20 }}>
-              During your period, staying hydrated reduces bloating and cramps. Aim for 2.5L daily! 🌸
+              During your period, staying hydrated reduces bloating and cramps. Aim for 2.5L daily!
             </Text>
           </View>
         </View>

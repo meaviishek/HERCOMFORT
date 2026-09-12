@@ -1,105 +1,288 @@
 import React from 'react';
-import { View, Platform } from 'react-native';
+import { View, Text, Platform, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
-import { Ionicons, Feather } from '@expo/vector-icons';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { HapticTab } from '@/components/haptic-tab';
-import { T } from '../../constants/theme';
+import { T, palette } from '../../constants/theme';
+
+// ─── Theme Colors ─────────────────────────────────────────────────────────────
+const PINK_PRIMARY = '#E84EA1';  // Vibrant signature Nari pink
+const PINK_DEEP = '#BE185D';     // Deep pink for 3D gradient/accent
+const PINK_GLOW = '#F472B6';     // Glow highlight
+const PINK_LIGHT = '#FDF2F8';    // Very soft blush for inactive tabs
+const PINK_MUTED = '#9CA3AF';    // Unselected icon color
+
+// ─── Regular Tab Icon with 3D depth ──────────────────────────────────────────
+function TabIcon({
+  focused,
+  children,
+}: {
+  focused: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.tabIconWrapper}>
+      <View
+        style={[
+          styles.tabIconInner,
+          focused && styles.tabIconInnerFocused,
+        ]}
+      >
+        {children}
+      </View>
+    </View>
+  );
+}
+
+// ─── Center 3D Floating Action Button (Session) matching Reference Image ─────
+function CenterSessionButton({ focused }: { focused: boolean }) {
+  return (
+    <View style={styles.centerFabContainer}>
+      {/* Outer subtle shadow/glow ring */}
+      <View style={styles.centerFabRing}>
+        {/* 3D Main circular button with layered bevel */}
+        <View
+          style={[
+            styles.centerFab,
+            focused ? styles.centerFabFocused : styles.centerFabNormal,
+          ]}
+        >
+          {/* Top gloss highlight bevel */}
+          <View style={styles.centerFabGloss} />
+          <Ionicons
+            name="flash"
+            size={25}
+            color="#FFFFFF"
+            style={styles.centerFabIcon}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
 
 export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarShowLabel: false,
+        tabBarHideOnKeyboard: true,
+        tabBarShowLabel: true,
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: '700',
+          letterSpacing: 0.2,
+          marginTop: -2,
+          marginBottom: Platform.OS === 'ios' ? 0 : 5,
+        },
         tabBarStyle: {
-          backgroundColor: T.bg.card,
+          backgroundColor: '#FFFFFF',
           borderTopWidth: 1,
-          borderTopColor: T.border.default,
-          height: Platform.OS === 'ios' ? 86 : 72,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 10,
-          paddingTop: 6,
-          elevation: 16,
-          shadowColor: T.pink.primary,
-          shadowOffset: { width: 0, height: -3 },
-          shadowOpacity: 0.08,
-          shadowRadius: 10,
+          borderTopColor: '#FCE7F3',
+          height: Platform.OS === 'ios' ? 88 : 74,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+          paddingTop: 4,
+          elevation: 20,
+          shadowColor: PINK_PRIMARY,
+          shadowOffset: { width: 0, height: -6 },
+          shadowOpacity: 0.12,
+          shadowRadius: 16,
         },
-        tabBarItemStyle: {
-          justifyContent: 'center',
-          alignItems: 'center',
-        },
-        tabBarIconStyle: {
-          marginTop: 6,
-        },
+        tabBarActiveTintColor: PINK_PRIMARY,
+        tabBarInactiveTintColor: PINK_MUTED,
         tabBarButton: HapticTab,
       }}
     >
-      {/* ── Home Tab ─────────────────────────────────────────────── */}
+      {/* ── 1. Today / Home (Far Left) ─────────────────────────────── */}
       <Tabs.Screen
         name="index"
         options={{
+          tabBarLabel: 'Today',
           tabBarIcon: ({ focused }) => (
-            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 12, width: 56, height: 56, borderRadius: 16, backgroundColor: focused ? T.tab.activeBg : 'transparent' }}>
-              <Ionicons name="home" size={26} color={focused ? T.tab.active : T.tab.inactive} />
-              {focused && <View style={{ width: 16, height: 4, backgroundColor: T.tab.indicator, borderRadius: 2, marginTop: 2 }} />}
-            </View>
+            <TabIcon focused={focused}>
+              <Ionicons
+                name={focused ? 'calendar' : 'calendar-outline'}
+                size={22}
+                color={focused ? PINK_PRIMARY : PINK_MUTED}
+              />
+            </TabIcon>
           ),
         }}
       />
 
-      {/* ── Device Scanner Tab ───────────────────────────────────── */}
+      {/* ── 2. AI Chat (Left of Center) ────────────────────────────── */}
       <Tabs.Screen
-        name="chat"
+        name="ai-chat"
         options={{
+          tabBarLabel: 'AI Chat',
           tabBarIcon: ({ focused }) => (
-            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 12, width: 56, height: 56, borderRadius: 16, backgroundColor: focused ? T.tab.activeBg : 'transparent' }}>
-              <Feather name="bluetooth" size={24} color={focused ? T.tab.active : T.tab.inactive} />
-              {focused && <View style={{ width: 16, height: 4, backgroundColor: T.tab.indicator, borderRadius: 2, marginTop: 2 }} />}
-            </View>
+            <TabIcon focused={focused}>
+              <MaterialCommunityIcons
+                name={focused ? 'chat-processing' : 'chat-processing-outline'}
+                size={22}
+                color={focused ? PINK_PRIMARY : PINK_MUTED}
+              />
+            </TabIcon>
           ),
         }}
       />
 
-      {/* ── Live Dashboard (center elevated) ─────────────────────── */}
+      {/* ── 3. Session (Center 3D Floating Action Button) ─────────── */}
       <Tabs.Screen
-        name="explore"
+        name="session"
         options={{
+          tabBarLabel: 'Session',
+          tabBarLabelStyle: {
+            fontSize: 10,
+            fontWeight: '800',
+            color: PINK_PRIMARY,
+            marginTop: 4,
+            marginBottom: Platform.OS === 'ios' ? 0 : 4,
+          },
           tabBarIcon: ({ focused }) => (
-            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: -32 }}>
-              <View style={{ alignItems: 'center', justifyContent: 'center', width: 64, height: 64, borderRadius: 32, borderWidth: 4, borderColor: '#fefcfd', overflow: 'hidden', backgroundColor: focused ? T.tab.fabBgFocused : T.tab.fabBg, elevation: 8, shadowColor: T.pink.primary, shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } }}>
-                <Ionicons name="pulse" size={28} color="white" style={{ position: 'absolute', zIndex: 10, elevation: 10 }} />
-              </View>
-            </View>
+            <CenterSessionButton focused={focused} />
           ),
         }}
       />
 
-      {/* ── Manual Control Tab ───────────────────────────────────── */}
+      {/* ── 4. History (Right of Center) ───────────────────────────── */}
       <Tabs.Screen
-        name="favorite"
+        name="history"
         options={{
+          tabBarLabel: 'History',
           tabBarIcon: ({ focused }) => (
-            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 12, width: 56, height: 56, borderRadius: 16, backgroundColor: focused ? T.tab.activeBg : 'transparent' }}>
-              <MaterialCommunityIcons name="tune-vertical" size={24} color={focused ? T.tab.active : T.tab.inactive} />
-              {focused && <View style={{ width: 16, height: 4, backgroundColor: T.tab.indicator, borderRadius: 2, marginTop: 2 }} />}
-            </View>
+            <TabIcon focused={focused}>
+              <Ionicons
+                name={focused ? 'time' : 'time-outline'}
+                size={23}
+                color={focused ? PINK_PRIMARY : PINK_MUTED}
+              />
+            </TabIcon>
           ),
         }}
       />
 
-      {/* ── Account Tab ──────────────────────────────────────────── */}
+      {/* ── 5. Profile (Far Right) ─────────────────────────────────── */}
       <Tabs.Screen
         name="account"
         options={{
+          tabBarLabel: 'Profile',
           tabBarIcon: ({ focused }) => (
-            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 12, width: 56, height: 56, borderRadius: 16, backgroundColor: focused ? T.tab.activeBg : 'transparent' }}>
-              <Ionicons name="person" size={26} color={focused ? T.tab.active : T.tab.inactive} />
-              {focused && <View style={{ width: 16, height: 4, backgroundColor: T.tab.indicator, borderRadius: 2, marginTop: 2 }} />}
-            </View>
+            <TabIcon focused={focused}>
+              <Ionicons
+                name={focused ? 'person' : 'person-outline'}
+                size={22}
+                color={focused ? PINK_PRIMARY : PINK_MUTED}
+              />
+            </TabIcon>
           ),
         }}
+      />
+
+      {/* ── Hidden routes (Insights, Scanner, etc. accessible in app) ── */}
+      <Tabs.Screen
+        name="explore"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="favorite"
+        options={{ href: null }}
       />
     </Tabs>
   );
 }
+
+// ─── 3D Styles matching reference image with vibrant Pink UI ──────────────────
+const styles = StyleSheet.create({
+  tabIconWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+    width: 44,
+  },
+  tabIconInner: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabIconInnerFocused: {
+    backgroundColor: PINK_LIGHT,
+    elevation: 2,
+    shadowColor: PINK_PRIMARY,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  // Center 3D Floating Action Button
+  centerFabContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -16,
+  },
+  centerFabRing: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#FFF0F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 10,
+    shadowColor: PINK_PRIMARY,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.38,
+    shadowRadius: 12,
+  },
+  centerFab: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  centerFabNormal: {
+    backgroundColor: PINK_PRIMARY,
+    borderWidth: 2,
+    borderColor: '#FDF2F8',
+    elevation: 8,
+    shadowColor: PINK_PRIMARY,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+  },
+  centerFabFocused: {
+    backgroundColor: PINK_DEEP,
+    borderWidth: 2.5,
+    borderColor: '#FCE7F3',
+    transform: [{ scale: 1.05 }],
+    elevation: 12,
+    shadowColor: PINK_DEEP,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+  },
+  centerFabGloss: {
+    position: 'absolute',
+    top: 0,
+    left: 4,
+    right: 4,
+    height: 18,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+  },
+  centerFabIcon: {
+    zIndex: 2,
+    elevation: 2,
+    textShadowColor: 'rgba(0, 0, 0, 0.25)',
+    textShadowOffset: { width: 0, height: 1.5 },
+    textShadowRadius: 2,
+  },
+});

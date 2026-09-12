@@ -1,8 +1,8 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { T } from "../constants/theme";
 import wellnessService, { SleepEntry, SleepInsights } from "../services/wellnessService";
 
@@ -10,11 +10,11 @@ const BEDTIMES  = ["9 PM","10 PM","11 PM","12 AM","1 AM","2 AM"];
 const WAKETIMES = ["4 AM","5 AM","6 AM","7 AM","8 AM","9 AM","10 AM"];
 const DURATIONS = [4,5,6,7,8,9,10];
 const QUALITIES = [
-  { label: "Terrible", emoji: "😩", value: 1 },
-  { label: "Poor",     emoji: "😔", value: 2 },
-  { label: "Okay",     emoji: "😐", value: 3 },
-  { label: "Good",     emoji: "🙂", value: 4 },
-  { label: "Great",    emoji: "😁", value: 5 },
+  { label: "Terrible", icon: "emoticon-dead-outline",    value: 1, emoji: "😩" },
+  { label: "Poor",     icon: "emoticon-sad-outline",     value: 2, emoji: "😔" },
+  { label: "Okay",     icon: "emoticon-neutral-outline", value: 3, emoji: "😐" },
+  { label: "Good",     icon: "emoticon-happy-outline",   value: 4, emoji: "🙂" },
+  { label: "Great",    icon: "emoticon-excited-outline", value: 5, emoji: "😁" },
 ];
 
 export default function SleepTracker() {
@@ -51,7 +51,7 @@ export default function SleepTracker() {
       await wellnessService.logSleep({ duration, quality, bedtime, wakeTime });
       const [hist, ins] = await Promise.all([wellnessService.getSleepHistory(14), wellnessService.getSleepInsights()]);
       setHistory(hist); setInsights(ins);
-      Alert.alert("Saved 💤", "Sleep data logged!");
+      Alert.alert("Saved", "Sleep data logged!");
     } catch (e: any) { Alert.alert("Error", e?.response?.data?.message || "Could not save."); }
     finally { setSaving(false); }
   }
@@ -64,7 +64,7 @@ export default function SleepTracker() {
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12 }}>
           <Feather name="arrow-left" size={24} color={T.text.primary} />
         </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary }}>💤 Sleep Tracker</Text>
+        <Text style={{ fontSize: 20, fontWeight: "900", color: T.text.primary }}>Sleep Tracker</Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
@@ -72,9 +72,9 @@ export default function SleepTracker() {
         {insights && (
           <View style={{ flexDirection: "row", gap: 12, marginBottom: 24 }}>
             {[{ label: "Avg Duration", value: `${insights.avgDuration}h`, color: "#6366f1" }, { label: "Avg Quality", value: `${insights.avgQuality}/5`, color: T.pink.primary }].map(s => (
-              <View key={s.label} style={{ flex: 1, backgroundColor: "#f5f3ff", borderRadius: 20, padding: 16, borderWidth: 1, borderColor: "#ddd6fe" }}>
-                <Text style={{ fontSize: 11, color: "#7c3aed", fontWeight: "700", marginBottom: 6, textTransform: "uppercase" }}>{s.label}</Text>
-                <Text style={{ fontSize: 26, fontWeight: "900", color: "#4c1d95" }}>{s.value}</Text>
+              <View key={s.label} style={{ flex: 1, backgroundColor: "#fff0f7", borderRadius: 20, padding: 16, borderWidth: 1, borderColor: "#fce7f3" }}>
+                <Text style={{ fontSize: 11, color: T.pink.primary, fontWeight: "700", marginBottom: 6, textTransform: "uppercase" }}>{s.label}</Text>
+                <Text style={{ fontSize: 26, fontWeight: "900", color: T.pink.dark }}>{s.value}</Text>
               </View>
             ))}
           </View>
@@ -95,17 +95,23 @@ export default function SleepTracker() {
         {/* Quality */}
         <Text style={{ fontSize: 15, fontWeight: "900", color: T.text.primary, marginBottom: 12 }}>Sleep Quality</Text>
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 24 }}>
-          {QUALITIES.map(q => (
-            <TouchableOpacity key={q.value} onPress={() => setQuality(q.value)}
-              style={{ flex: 1, backgroundColor: quality===q.value ? "#6366f1" + "22" : T.bg.input, borderRadius: 14, padding: 10, alignItems: "center", borderWidth: 2, borderColor: quality===q.value ? "#6366f1" : "transparent" }}>
-              <Text style={{ fontSize: 22 }}>{q.emoji}</Text>
-              <Text style={{ fontSize: 9, fontWeight: "700", color: quality===q.value ? "#6366f1" : T.text.muted, marginTop: 4 }}>{q.label}</Text>
-            </TouchableOpacity>
-          ))}
+          {QUALITIES.map(q => {
+            const active = quality === q.value;
+            return (
+              <TouchableOpacity key={q.value} onPress={() => setQuality(q.value)}
+                style={{ flex: 1, backgroundColor: active ? "#6366f1" + "18" : "#fff", borderRadius: 16, padding: 10, alignItems: "center", borderWidth: 2, borderColor: active ? "#6366f1" : T.border.default }}>
+                <MaterialCommunityIcons name={q.icon as any} size={24} color={active ? "#6366f1" : T.text.muted} />
+                <Text style={{ fontSize: 10, fontWeight: "700", color: active ? "#6366f1" : T.text.muted, marginTop: 6 }}>{q.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* Bedtime */}
-        <Text style={{ fontSize: 13, fontWeight: "800", color: T.text.secondary, marginBottom: 8 }}>🌙 Bedtime</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+          <Feather name="moon" size={14} color="#6366f1" />
+          <Text style={{ fontSize: 13, fontWeight: "800", color: T.text.secondary }}>Bedtime</Text>
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 16 }}>
           {BEDTIMES.map(b => (
             <TouchableOpacity key={b} onPress={() => setBedtime(b)}
@@ -116,7 +122,10 @@ export default function SleepTracker() {
         </ScrollView>
 
         {/* Wake */}
-        <Text style={{ fontSize: 13, fontWeight: "800", color: T.text.secondary, marginBottom: 8 }}>☀️ Wake Time</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+          <Feather name="sun" size={14} color="#f59e0b" />
+          <Text style={{ fontSize: 13, fontWeight: "800", color: T.text.secondary }}>Wake Time</Text>
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 24 }}>
           {WAKETIMES.map(w => (
             <TouchableOpacity key={w} onPress={() => setWakeTime(w)}
@@ -128,16 +137,18 @@ export default function SleepTracker() {
 
         {/* Save */}
         <TouchableOpacity onPress={save} disabled={saving}
-          style={{ backgroundColor: "#6366f1", borderRadius: 20, paddingVertical: 16, alignItems: "center" }}>
+          style={{ backgroundColor: "#6366f1", borderRadius: 20, paddingVertical: 16, alignItems: "center", elevation: 2, shadowColor: "#6366f1", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 }}>
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16 }}>Log Sleep</Text>}
         </TouchableOpacity>
 
         {/* Insight */}
         {insights && (
-          <View style={{ backgroundColor: "#eef2ff", borderRadius: 20, padding: 16, marginTop: 20, borderWidth: 1, borderColor: "#c7d2fe", flexDirection: "row", gap: 10 }}>
-            <Text style={{ fontSize: 20 }}>💡</Text>
+          <View style={{ backgroundColor: "#eef2ff", borderRadius: 20, padding: 16, marginTop: 20, borderWidth: 1, borderColor: "#c7d2fe", flexDirection: "row", gap: 12, alignItems: "center" }}>
+            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" }}>
+              <Feather name="info" size={18} color="#4338ca" />
+            </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, fontWeight: "800", color: "#4338ca", marginBottom: 4 }}>Sleep Insight</Text>
+              <Text style={{ fontSize: 13, fontWeight: "800", color: "#4338ca", marginBottom: 2 }}>Sleep Insight</Text>
               <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: 20 }}>{insights.message}</Text>
             </View>
           </View>
@@ -156,7 +167,10 @@ export default function SleepTracker() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontWeight: "800", color: T.text.primary }}>{h.bedtime} → {h.wakeTime}</Text>
-                    <Text style={{ fontSize: 12, color: T.text.muted }}>{q?.emoji} {q?.label}</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+                      <MaterialCommunityIcons name={(q?.icon as any) || "emoticon-neutral-outline"} size={14} color={T.text.muted} />
+                      <Text style={{ fontSize: 12, color: T.text.muted }}>{q?.label}</Text>
+                    </View>
                   </View>
                   <Text style={{ fontSize: 11, color: T.text.muted }}>
                     {new Date(h.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}

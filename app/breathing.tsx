@@ -1,8 +1,8 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TouchableOpacity, Animated, Easing, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Feather } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { T } from "../constants/theme";
 
 const { width } = Dimensions.get("window");
@@ -88,7 +88,7 @@ export default function BreathingScreen() {
         <TouchableOpacity onPress={() => { stopAll(); router.back(); }} style={{ marginRight: 12 }}>
           <Feather name="arrow-left" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={{ fontSize: 20, fontWeight: "900", color: "#fff" }}>🎧 Breathing & Relaxation</Text>
+        <Text style={{ fontSize: 20, fontWeight: "900", color: "#fff" }}>Breathing & Relaxation</Text>
       </View>
 
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 }}>
@@ -110,7 +110,11 @@ export default function BreathingScreen() {
           <Animated.View style={{ position: "absolute", width: CIRCLE, height: CIRCLE, borderRadius: CIRCLE/2, backgroundColor: (active ? phase.color : "#e84ea1") + "15", transform: [{ scale: scaleAnim }] }} />
           <Animated.View style={{ position: "absolute", width: CIRCLE * 0.82, height: CIRCLE * 0.82, borderRadius: CIRCLE/2, backgroundColor: (active ? phase.color : "#e84ea1") + "28", transform: [{ scale: scaleAnim }] }} />
           <Animated.View style={{ width: CIRCLE * 0.65, height: CIRCLE * 0.65, borderRadius: CIRCLE/2, backgroundColor: active ? phase.color : T.pink.primary, alignItems: "center", justifyContent: "center", opacity: opacAnim }}>
-            <Text style={{ fontSize: 42, fontWeight: "900", color: "#fff" }}>{active ? counter : "🌬️"}</Text>
+            {active ? (
+              <Text style={{ fontSize: 42, fontWeight: "900", color: "#fff" }}>{counter}</Text>
+            ) : (
+              <Ionicons name="leaf-outline" size={42} color="#fff" />
+            )}
             <Text style={{ fontSize: 14, color: "rgba(255,255,255,0.85)", fontWeight: "700", marginTop: 4, textAlign: "center" }}>{active ? phase.label : "Ready"}</Text>
           </Animated.View>
         </View>
