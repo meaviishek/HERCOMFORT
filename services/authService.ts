@@ -42,7 +42,7 @@ export interface StoredSession {
 // On Android physical device, use your PC's LAN IP (not localhost).
 // Example: EXPO_PUBLIC_API_URL=http://192.168.1.10:3000
 export const BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL || 'http://172.26.144.188:3000';
+  process.env.EXPO_PUBLIC_API_URL || 'https://hercomfort-jet.vercel.app';
 
 export const STORAGE_KEYS = {
   ACCESS_TOKEN: '@nari:accessToken',

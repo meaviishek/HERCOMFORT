@@ -8,22 +8,28 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://hercomfort-jet.vercel.app"
-      
+        "EXPO_PUBLIC_API_URL": "https://hercomfort-jet.vercel.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "295403776708-hfp3crgf487hto886nuu4pl7r7od6c7e.apps.googleusercontent.com"
       }
     },
     "preview": {
       "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://hercomfort-jet.vercel.app"
-   
+        "EXPO_PUBLIC_API_URL": "https://hercomfort-jet.vercel.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "295403776708-hfp3crgf487hto886nuu4pl7r7od6c7e.apps.googleusercontent.com"
       }
     },
     "production": {
       "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://hercomfort-jet.vercel.app"
-   
+        "EXPO_PUBLIC_API_URL": "https://hercomfort-jet.vercel.app",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "295403776708-hfp3crgf487hto886nuu4pl7r7od6c7e.apps.googleusercontent.com"
       }
     }
   },

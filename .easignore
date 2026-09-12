@@ -1,0 +1,16 @@
+# EAS Build ignore file
+# Exclude dependencies and build outputs from the tarball
+node_modules/
+.expo/
+dist/
+web-build/
+
+# Ignore native build directories if using prebuild / cloud managed workflow
+# (keeps upload tarball fast and lean)
+.gradle/
+android/.gradle/
+android/app/build/
+android/build/
+
+# Keep .env so EAS build packs it
+!.env

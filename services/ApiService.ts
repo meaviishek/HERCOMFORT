@@ -43,7 +43,7 @@ interface FlushResult {
 }
 
 // ─── Config ────────────────────────────────────────────────────────────────────
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://172.26.144.188:3000';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://hercomfort-jet.vercel.app';
 const OFFLINE_QUEUE_KEY = '@painreliefband:offlineQueue';
 const MAX_QUEUE_SIZE = 500;
 
