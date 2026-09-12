@@ -12,5 +12,7 @@ android/.gradle/
 android/app/build/
 android/build/
 
+android-backup/
+
 # Keep .env so EAS build packs it
 !.env
