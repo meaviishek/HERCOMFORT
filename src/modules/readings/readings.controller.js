@@ -1,4 +1,5 @@
 import SensorReading from '../../models/SensorReading.js';
+import Session from '../../models/Session.js';
 import { getIO } from '../../config/socket.js';
 
 /**
@@ -200,3 +201,153 @@ export async function getStats(req, res) {
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }
+
+/**
+ * POST /api/readings/batch
+ * Store continuous sensor readings in batch mode with timestamps (no threshold stored).
+ */
+export async function createBatchReadings(req, res) {
+  try {
+    const readings = Array.isArray(req.body) ? req.body : req.body?.readings;
+    if (!readings || !Array.isArray(readings) || readings.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'An array of readings is required.',
+      });
+    }
+
+    const docs = readings.map((r) => ({
+      deviceId: r.deviceId || 'HER-COMFORT',
+      temp: Number(r.temp ?? r.temperature ?? 36.5),
+      bpm: Number(r.bpm ?? 72),
+      gx: Number(r.gx ?? 0),
+      gy: Number(r.gy ?? 0),
+      gz: Number(r.gz ?? 0),
+      raw_analog: Number(r.raw_analog ?? 1700),
+      motor: Boolean(r.motor),
+      heater: Boolean(r.heater),
+      autoMode: Boolean(r.autoMode ?? false),
+      active: Boolean(r.active ?? true),
+      sensorError: Boolean(r.sensorError ?? false),
+      sessionId: r.sessionId || null,
+      espTimestamp: r.timestamp || r.espTimestamp || Date.now(),
+      receivedAt: r.receivedAt ? new Date(r.receivedAt) : new Date(),
+    }));
+
+    try {
+      await SensorReading.insertMany(docs, { ordered: false });
+    } catch (insertErr) {
+      console.warn('[SensorReading] Batch insert notice:', insertErr?.message);
+    }
+
+    // Broadcast latest packet from batch if socket is connected
+    try {
+      const io = getIO();
+      const latest = docs[docs.length - 1];
+      if (io && latest) {
+        io.to(`device:${latest.deviceId}`).emit('new-reading', latest);
+      }
+    } catch {}
+
+    return res.status(201).json({
+      success: true,
+      insertedCount: docs.length,
+    });
+  } catch (err) {
+    console.error('[createBatchReadings] Error:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: err.message });
+  }
+}
+
+/**
+ * POST /api/readings/sessions
+ * Store completed therapy session with duration and calculated features (EMG RMS, temp avg/max, IMU stats).
+ */
+export async function createSession(req, res) {
+  try {
+    const {
+      sessionId,
+      userId,
+      deviceId = 'HER-COMFORT',
+      startTime,
+      endTime,
+      durationSeconds,
+      durationMin,
+      painBefore,
+      painAfter,
+      location,
+      symptoms,
+      therapy,
+      features,
+      notes,
+    } = req.body;
+
+    const id = sessionId || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const durSec = Number(durationSeconds ?? ((durationMin ?? 1) * 60));
+    const durMin = Number(durationMin ?? Math.max(1, Math.round(durSec / 60)));
+
+    const sessionDoc = await Session.create({
+      sessionId: id,
+      userId: userId || null,
+      deviceId,
+      startTime: startTime ? new Date(startTime) : new Date(Date.now() - durSec * 1000),
+      endTime: endTime ? new Date(endTime) : new Date(),
+      durationSeconds: durSec,
+      durationMin: durMin,
+      painBefore: painBefore ?? 5,
+      painAfter: painAfter ?? 3,
+      location: location || 'Lower abdomen',
+      symptoms: symptoms || [],
+      therapy: therapy || {},
+      features: features || {},
+      notes: notes || '',
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: sessionDoc,
+    });
+  } catch (err) {
+    console.error('[createSession] Error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to create session', error: err.message });
+  }
+}
+
+/**
+ * GET /api/readings/sessions
+ * Paginated list of sessions, newest first.
+ */
+export async function getSessions(req, res) {
+  try {
+    const { userId, deviceId, page = 1, limit = 20 } = req.query;
+    const filter = {};
+    if (userId) filter.userId = userId;
+    if (deviceId) filter.deviceId = deviceId;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [sessions, total] = await Promise.all([
+      Session.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Session.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: sessions,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (err) {
+    console.error('[getSessions] Error:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+}
+

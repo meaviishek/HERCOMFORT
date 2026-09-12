@@ -51,6 +51,27 @@ const sensorReadingSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    gx: {
+      type: Number,
+      default: 0,
+    },
+    gy: {
+      type: Number,
+      default: 0,
+    },
+    gz: {
+      type: Number,
+      default: 0,
+    },
+    raw_analog: {
+      type: Number,
+      default: 1700,
+    },
+    sessionId: {
+      type: String,
+      index: true,
+      sparse: true,
+    },
     /** Epoch millis from ESP32 internal clock */
     espTimestamp: {
       type: Number,

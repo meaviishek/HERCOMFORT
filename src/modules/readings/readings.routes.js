@@ -1,6 +1,9 @@
 import express from 'express';
 import {
   createReading,
+  createBatchReadings,
+  createSession,
+  getSessions,
   getReadings,
   getLatestReading,
   getStats,
@@ -8,7 +11,16 @@ import {
 
 const router = express.Router();
 
-// POST   /api/readings          — store new reading from mobile app
+// POST   /api/readings/batch    — store continuous readings batch with timestamps
+router.post('/batch', createBatchReadings);
+
+// POST   /api/readings/sessions — store completed therapy session record
+router.post('/sessions', createSession);
+
+// GET    /api/readings/sessions — paginated list of therapy sessions
+router.get('/sessions', getSessions);
+
+// POST   /api/readings          — store single reading
 router.post('/', createReading);
 
 // GET    /api/readings/latest   — most recent reading (optional ?deviceId=)
@@ -21,3 +33,4 @@ router.get('/stats', getStats);
 router.get('/', getReadings);
 
 export default router;
+
