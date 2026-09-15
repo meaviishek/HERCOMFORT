@@ -70,11 +70,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Prevent double-logout from concurrent 401s
   const isRefreshingRef = useRef(false);
 
-  // ── Apply tokens to state & ref ────────────────────────────────────────────
+  // ── Apply tokens to state & ref + persist to AsyncStorage ────────────────
   function _applyTokens(token: string, userData: AuthUser): void {
     tokenRef.current = token;
     setAccessToken(token);
     setUser(userData);
+    // Persist so the session survives full app restarts
+    void saveTokens({ accessToken: token, user: userData });
   }
 
   // ── Logout helper (clears everything) ─────────────────────────────────────

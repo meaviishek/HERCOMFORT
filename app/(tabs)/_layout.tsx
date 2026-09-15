@@ -1,6 +1,6 @@
-import React from 'react';
-import { View, Text, Platform, StyleSheet } from 'react-native';
-import { Tabs } from 'expo-router';
+import React, { useEffect } from 'react';
+import { View, Text, Platform, StyleSheet, BackHandler } from 'react-native';
+import { Tabs, usePathname } from 'expo-router';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { HapticTab } from '@/components/haptic-tab';
 import { T, palette } from '../../constants/theme';
@@ -62,6 +62,19 @@ function CenterSessionButton({ focused }: { focused: boolean }) {
 }
 
 export default function TabLayout() {
+  const pathname = usePathname();
+
+  // ── Android Back: exit app instead of navigating to login ────────────────
+  useEffect(() => {
+    const onBack = () => {
+      // We are at the tab root — exit the app cleanly
+      BackHandler.exitApp();
+      return true; // prevent default back behaviour
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => sub.remove();
+  }, [pathname]);
+
   return (
     <Tabs
       screenOptions={{

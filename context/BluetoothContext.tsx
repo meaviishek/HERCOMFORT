@@ -119,7 +119,8 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
           const next = [...prev, normalized];
           return next.length > 60 ? next.slice(-60) : next;
         });
-        ApiService.postReading(normalized).catch(() => {});
+        // NOTE: postReading removed — session.tsx batch mechanism handles DB writes
+        // to prevent 20Hz network spam that caused JS thread overload
       },
       (err) => {
         console.log('[BT Context] Stream ended:', err.message);
@@ -173,7 +174,17 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
         try {
           const discovered = await BluetoothService.startDiscovery();
           const pairedAddresses = new Set(paired.map((d) => d.address));
-          const newDevices = discovered.filter((d) => !pairedAddresses.has(d.address));
+          // ── Only add Her Comfort / ESP32 devices from Classic BT ──────────
+          const newDevices = discovered.filter((d) => {
+            if (pairedAddresses.has(d.address)) return false;
+            const n = (d.name || '').toLowerCase();
+            return (
+              n.includes('her comfort') ||
+              n.includes('hercomfort') ||
+              n.includes('her_comfort') ||
+              n.includes('esp32')
+            );
+          });
           setDiscoveredDevices((prev) => {
             const existing = new Set(prev.map((d) => d.address));
             const added = newDevices.filter((d) => !existing.has(d.address));
@@ -218,7 +229,7 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
                 const next = [...prev, reading];
                 return next.length > 60 ? next.slice(-60) : next;
               });
-              ApiService.postReading(reading).catch(() => {});
+              // NOTE: postReading removed — session.tsx batch mechanism handles DB writes
             },
             () => {
               setConnectedDevice(null);

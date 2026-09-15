@@ -271,40 +271,48 @@ export default function BleDeviceScreen() {
           </>
         )}
 
-        {/* Dashboard */}
-        {connected && live && (
-          <>
-            <View style={s.statsRow}>
-              <StatCard icon="thermometer" label="Temperature" value={live.temperature.toFixed(2)} unit="°C" bg="#fff0f0" accent="#ef4444" />
-              <StatCard icon="activity"    label="Gyro X"      value={live.gx.toFixed(2)}          unit="°/s" bg="#fff0f4" accent={T.pink.primary} />
-              <StatCard icon="navigation"  label="Gyro Y"      value={live.gy.toFixed(2)}          unit="°/s" bg="#f0f4ff" accent="#6366f1" />
-              <StatCard icon="compass"     label="Gyro Z"      value={live.gz.toFixed(2)}          unit="°/s" bg="#e0f7ff" accent="#0ea5e9" />
+        {/* ── Connected: confirmation card ─────────────────────────────────
+            Sensor readings are only shown inside an active session (session.tsx).
+            This prevents raw data from appearing before a therapy session begins.
+         ─────────────────────────────────────────────────────────────────── */}
+        {connected && (
+          <View style={s.connectedCard}>
+            <View style={s.connectedIconRing}>
+              <Feather name="check" size={32} color="#22c55e" />
+            </View>
+            <Text style={s.connectedTitle}>Her Comfort Belt Online</Text>
+            <Text style={s.connectedSub}>
+              {connectedDevice?.name ?? 'ESP32'} is connected and streaming data.
+            </Text>
+
+            <View style={s.connStatsRow}>
+              <View style={s.connStatBox}>
+                <Feather name="wifi" size={15} color="#22c55e" />
+                <Text style={s.connStatLbl}>SIGNAL</Text>
+                <Text style={s.connStatVal}>Strong</Text>
+              </View>
+              <View style={s.connStatBox}>
+                <Feather name="activity" size={15} color={T.pink.primary} />
+                <Text style={s.connStatLbl}>PACKETS</Text>
+                <Text style={s.connStatVal}>{packetCount}</Text>
+              </View>
+              <View style={s.connStatBox}>
+                <Feather name="cpu" size={15} color="#6366f1" />
+                <Text style={s.connStatLbl}>DEVICE</Text>
+                <Text style={s.connStatVal}>ESP32</Text>
+              </View>
             </View>
 
-            <Text style={s.sectionTitle}>Temperature Telemetry</Text>
-            <LineGraph data={tempH} color="#ef4444" label="Temperature" unit="°C"
-              yMin={tempH.length ? Math.min(30, Math.min(...tempH) - 1) : 30}
-              yMax={tempH.length ? Math.max(42, Math.max(...tempH) + 1) : 42} />
-
-            <Text style={[s.sectionTitle, { marginTop: 20 }]}>Gyroscope Tri-Axis</Text>
-            <LineGraph data={gxH} color={T.pink.primary} label="Gyro X" unit="°/s" yMin={-10} yMax={10} />
-            <LineGraph data={gyH} color="#6366f1"         label="Gyro Y" unit="°/s" yMin={-10} yMax={10} />
-            <LineGraph data={gzH} color="#0ea5e9"         label="Gyro Z" unit="°/s" yMin={-10} yMax={10} />
-
-            <Text style={[s.sectionTitle, { marginTop: 20 }]}>Raw Packet</Text>
-            <View style={s.rawCard}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#22c55e" }} />
-                <Text style={{ flex: 1, fontSize: 11, fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.8 }}>
-                  Latest Sensor Payload
-                </Text>
-                <Text style={{ fontSize: 11, fontWeight: "600", color: "#22c55e" }}>{packetCount} rx</Text>
-              </View>
-              <Text style={s.rawJson} selectable>
-                {JSON.stringify(liveData, null, 2)}
+            <View style={s.connCallout}>
+              <Feather name="info" size={13} color="#0284C7" style={{ marginTop: 1 }} />
+              <Text style={s.connCalloutTxt}>
+                Live readings are shown only during an active session.{"\n"}
+                Go to the{" "}
+                <Text style={{ fontWeight: '800', color: '#0284C7' }}>Session tab</Text>{" "}
+                and tap <Text style={{ fontWeight: '800' }}>INITIATE RELIEF THERAPY</Text> to begin.
               </Text>
             </View>
-          </>
+          </View>
         )}
 
         {connecting && (
@@ -314,20 +322,13 @@ export default function BleDeviceScreen() {
             <Text style={s.centerSub}>Discovering GATT services</Text>
           </View>
         )}
-        {connected && !live && !connecting && (
-          <View style={s.centerBox}>
-            <ActivityIndicator size="large" color={T.pink.primary} />
-            <Text style={s.centerTitle}>Waiting for data…</Text>
-            <Text style={s.centerSub}>Device sends packets every 50 ms</Text>
-          </View>
-        )}
 
         <View style={s.guide}>
           <Text style={s.guideTitle}>How to connect</Text>
-          <Text style={s.guideStep}>1. Power on the ESP32 device</Text>
+          <Text style={s.guideStep}>1. Power on the ESP32 Her Comfort device</Text>
           <Text style={s.guideStep}>2. Tap "Scan for ESP32" above</Text>
-          <Text style={s.guideStep}>3. Select "Her Comfort" from the list</Text>
-          <Text style={s.guideStep}>4. Live graphs appear automatically</Text>
+          <Text style={s.guideStep}>3. Tap "Connect" next to Her Comfort</Text>
+          <Text style={s.guideStep}>4. Go to Session tab and start a session to see live data</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -403,4 +404,22 @@ const s = StyleSheet.create({
                  borderWidth: 1, borderColor: T.pink.border },
   guideTitle:  { fontSize: 15, fontWeight: "800", color: T.text.primary, marginBottom: 10 },
   guideStep:   { fontSize: 13, color: T.text.muted, fontWeight: "500", lineHeight: 22 },
+  // Connected confirmation card
+  connectedCard:    { backgroundColor: '#fff', borderRadius: 24, padding: 24, marginBottom: 16,
+                      borderWidth: 1, borderColor: '#bbf7d0', alignItems: 'center',
+                      shadowColor: '#22c55e', shadowOffset: { width: 0, height: 3 },
+                      shadowOpacity: 0.10, shadowRadius: 10, elevation: 3 },
+  connectedIconRing:{ width: 72, height: 72, borderRadius: 36, backgroundColor: '#f0fdf4',
+                      borderWidth: 2, borderColor: '#bbf7d0',
+                      alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  connectedTitle:   { fontSize: 18, fontWeight: '900', color: '#15803d', marginBottom: 6 },
+  connectedSub:     { fontSize: 13, color: '#6b7280', textAlign: 'center', lineHeight: 20, marginBottom: 18 },
+  connStatsRow:     { flexDirection: 'row', gap: 10, marginBottom: 18, width: '100%' },
+  connStatBox:      { flex: 1, backgroundColor: '#f9fafb', borderRadius: 14, padding: 12,
+                      alignItems: 'center', gap: 4, borderWidth: 1, borderColor: '#f3f4f6' },
+  connStatLbl:      { fontSize: 9, fontWeight: '700', color: '#9ca3af', letterSpacing: 0.5, textTransform: 'uppercase' },
+  connStatVal:      { fontSize: 13, fontWeight: '800', color: '#1f2937' },
+  connCallout:      { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#eff6ff',
+                      borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#bfdbfe', width: '100%' },
+  connCalloutTxt:   { fontSize: 12, color: '#1e40af', lineHeight: 18, flex: 1 },
 });

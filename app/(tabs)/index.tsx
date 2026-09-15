@@ -272,9 +272,15 @@ export default function HomeScreen() {
         cycleService.getCalendarData(calYear, calMonth),
         cycleService.getHistory(1, 5),
       ]);
-      setSummary(sum); setCalCycles(cal); setHistory(hist.cycles);
-    } catch (e) { console.warn("fetchAll err", e); }
-    finally { setLoading(false); setRefreshing(false); }
+      if (sum) setSummary(sum);
+      if (cal) setCalCycles(cal);
+      if (hist?.cycles) setHistory(hist.cycles);
+    } catch (e: any) {
+      console.log("[Home] fetchAll notice:", e?.message || e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }
 
   useEffect(() => { fetchAll(); }, []);

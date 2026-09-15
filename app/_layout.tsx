@@ -7,6 +7,7 @@ import '../global.css';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { BluetoothProvider } from '../context/BluetoothContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { AppLockProvider } from '../context/AppLockContext';
 import { useEffect, useState } from 'react';
 import { DeviceEventEmitter, View, Text, SafeAreaView } from 'react-native';
 
@@ -90,24 +91,26 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <BluetoothProvider>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <AuthGate>
-            <GlobalErrorBanner />
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="index" options={{ headerShown: false }} />
-              <Stack.Screen name="login" options={{ headerShown: false }} />
-              <Stack.Screen name="register" options={{ headerShown: false }} />
-              <Stack.Screen name="verify-otp" options={{ headerShown: false }} />
-              <Stack.Screen name="complete-profile" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="modal"       options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
-              <Stack.Screen name="ble-device" options={{ headerShown: false }} />
-            </Stack>
-            <StatusBar style="auto" />
-          </AuthGate>
-        </ThemeProvider>
-      </BluetoothProvider>
+      <AppLockProvider>
+        <BluetoothProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <AuthGate>
+              <GlobalErrorBanner />
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="index" options={{ headerShown: false }} />
+                <Stack.Screen name="login" options={{ headerShown: false }} />
+                <Stack.Screen name="register" options={{ headerShown: false }} />
+                <Stack.Screen name="verify-otp" options={{ headerShown: false }} />
+                <Stack.Screen name="complete-profile" options={{ headerShown: false }} />
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="modal"       options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
+                <Stack.Screen name="ble-device" options={{ headerShown: false }} />
+              </Stack>
+              <StatusBar style="auto" />
+            </AuthGate>
+          </ThemeProvider>
+        </BluetoothProvider>
+      </AppLockProvider>
     </AuthProvider>
   );
 }

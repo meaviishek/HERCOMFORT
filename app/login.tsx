@@ -14,7 +14,6 @@ import {
 import { Link, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { T, palette } from '../constants/theme';
 
@@ -39,8 +38,8 @@ export default function LoginScreen() {
     setIsLoading(true);
     try {
       await login(email.trim().toLowerCase(), password);
-      await AsyncStorage.setItem('@nari_onboarding_completed_v1', 'true');
-      router.replace('/(tabs)');
+      // AuthGate in _layout.tsx will automatically redirect to /(tabs)
+      // once isAuthenticated becomes true — no manual navigation needed.
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||

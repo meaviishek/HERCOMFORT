@@ -12,6 +12,7 @@
     },
     "android": {
       "package": "com.nari.painreliefband",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/images/android-icon-foreground.png"

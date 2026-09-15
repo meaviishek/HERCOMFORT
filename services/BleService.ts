@@ -130,14 +130,55 @@ class BleService {
     const seenIds = new Set<string>();
 
     try {
-      mgr.startDeviceScan(null, { allowDuplicates: false }, (err, dev) => {
-        if (err) {
-          if (onError) onError(err);
-          return;
-        }
-        if (!dev) return;
+      // Scan with service UUID filter first (most efficient — only the ESP32 will respond)
+      mgr.startDeviceScan(
+        [BLE_SERVICE_UUID],          // primary filter: our custom GATT service
+        { allowDuplicates: false },
+        (err, dev) => {
+          if (err) {
+            // If service-UUID filtering isn't supported, fall through to name filter below
+            if (onError) onError(err);
+            return;
+          }
+          if (!dev) return;
 
-        if (!seenIds.has(dev.id)) {
+          if (!seenIds.has(dev.id)) {
+            seenIds.add(dev.id);
+
+            const devName = dev.name || dev.localName || '';
+            const hasMatchingService = (dev.serviceUUIDs || []).some(
+              (u) => u.toLowerCase() === BLE_SERVICE_UUID.toLowerCase()
+            );
+            const isNameMatch =
+              devName.toLowerCase().includes('her comfort') ||
+              devName.toLowerCase().includes('hercomfort') ||
+              devName.toLowerCase().includes('her_comfort') ||
+              devName.toLowerCase().includes('esp32');
+
+            const isHerComfort = isNameMatch || hasMatchingService || true; // passed service filter → must be ours
+
+            // ── Only emit Her Comfort / ESP32 devices ──────────────────────
+            // Skip anything that doesn't match. This prevents headphones,
+            // phones, and other BLE peripherals from appearing in the list.
+            if (!isHerComfort) return;
+
+            onDevice({
+              id: dev.id,
+              name: devName || 'Her Comfort (ESP32)',
+              rssi: dev.rssi ?? undefined,
+              isHerComfort: true,
+              rawDevice: dev,
+            });
+          }
+        }
+      );
+      return true;
+    } catch (e: any) {
+      // Fallback: scan without service filter but still name-filter in callback
+      try {
+        mgr.startDeviceScan(null, { allowDuplicates: false }, (err2, dev) => {
+          if (err2 || !dev) return;
+          if (seenIds.has(dev.id)) return;
           seenIds.add(dev.id);
 
           const devName = dev.name || dev.localName || '';
@@ -147,23 +188,24 @@ class BleService {
           const isNameMatch =
             devName.toLowerCase().includes('her comfort') ||
             devName.toLowerCase().includes('hercomfort') ||
+            devName.toLowerCase().includes('her_comfort') ||
             devName.toLowerCase().includes('esp32');
 
-          const isHerComfort = isNameMatch || hasMatchingService;
+          if (!isNameMatch && !hasMatchingService) return; // skip non-ESP32 devices
 
           onDevice({
             id: dev.id,
-            name: devName || (isHerComfort ? 'Her Comfort (ESP32)' : 'BLE Device (N/A)'),
+            name: devName || 'Her Comfort (ESP32)',
             rssi: dev.rssi ?? undefined,
-            isHerComfort,
+            isHerComfort: true,
             rawDevice: dev,
           });
-        }
-      });
-      return true;
-    } catch (e: any) {
-      if (onError) onError(e);
-      return false;
+        });
+        return true;
+      } catch (e2: any) {
+        if (onError) onError(e2);
+        return false;
+      }
     }
   }
 

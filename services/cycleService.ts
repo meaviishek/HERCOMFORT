@@ -1,10 +1,16 @@
-﻿/**
+/**
  * cycleService.ts
- * API calls for Period & Cycle Tracker.
+ * API calls for Period & Cycle Tracker with local AsyncStorage caching & offline resilience.
  * Uses the shared authApi axios instance (auth interceptors auto-attach the JWT).
  */
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authApi } from "./authService";
+
+// ─── Cache Keys ────────────────────────────────────────────────────────────────
+const CYCLE_SUMMARY_KEY = "@nari:cycleSummary";
+const CYCLE_CALENDAR_KEY = "@nari:cycleCalendar";
+const CYCLE_HISTORY_KEY = "@nari:cycleHistory";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -55,13 +61,28 @@ export interface CycleHistory {
   pages: number;
 }
 
-// ─── API Calls ────────────────────────────────────────────────────────────────
+// ─── API Calls with Offline Fallback ───────────────────────────────────────────
 
 async function getSummary(): Promise<CycleSummary> {
-  const res = await authApi.get<{ success: boolean; data: CycleSummary }>(
-    "/api/cycle/summary"
-  );
-  return res.data.data;
+  try {
+    const res = await authApi.get<{ success: boolean; data: CycleSummary }>(
+      "/api/cycle/summary"
+    );
+    if (res.data?.data) {
+      await AsyncStorage.setItem(
+        CYCLE_SUMMARY_KEY,
+        JSON.stringify(res.data.data)
+      ).catch(() => {});
+      return res.data.data;
+    }
+  } catch (err: any) {
+    console.warn("[CycleService] getSummary fallback:", err?.message || err);
+    try {
+      const cached = await AsyncStorage.getItem(CYCLE_SUMMARY_KEY);
+      if (cached) return JSON.parse(cached);
+    } catch {}
+  }
+  return { hasData: false };
 }
 
 async function startPeriod(payload: {
@@ -104,22 +125,52 @@ async function getHistory(
   page = 1,
   limit = 10
 ): Promise<CycleHistory> {
-  const res = await authApi.get<{ success: boolean; data: CycleHistory }>(
-    "/api/cycle/history",
-    { params: { page, limit } }
-  );
-  return res.data.data;
+  try {
+    const res = await authApi.get<{ success: boolean; data: CycleHistory }>(
+      "/api/cycle/history",
+      { params: { page, limit } }
+    );
+    if (res.data?.data) {
+      if (page === 1) {
+        await AsyncStorage.setItem(
+          CYCLE_HISTORY_KEY,
+          JSON.stringify(res.data.data)
+        ).catch(() => {});
+      }
+      return res.data.data;
+    }
+  } catch (err: any) {
+    console.warn("[CycleService] getHistory fallback:", err?.message || err);
+    try {
+      const cached = await AsyncStorage.getItem(CYCLE_HISTORY_KEY);
+      if (cached) return JSON.parse(cached);
+    } catch {}
+  }
+  return { cycles: [], total: 0, page: 1, pages: 1 };
 }
 
 async function getCalendarData(
   year: number,
   month: number
 ): Promise<Cycle[]> {
-  const res = await authApi.get<{ success: boolean; data: Cycle[] }>(
-    "/api/cycle/calendar",
-    { params: { year, month } }
-  );
-  return res.data.data;
+  const cacheKey = `${CYCLE_CALENDAR_KEY}_${year}_${month}`;
+  try {
+    const res = await authApi.get<{ success: boolean; data: Cycle[] }>(
+      "/api/cycle/calendar",
+      { params: { year, month } }
+    );
+    if (res.data?.data) {
+      await AsyncStorage.setItem(cacheKey, JSON.stringify(res.data.data)).catch(() => {});
+      return res.data.data;
+    }
+  } catch (err: any) {
+    console.warn("[CycleService] getCalendarData fallback:", err?.message || err);
+    try {
+      const cached = await AsyncStorage.getItem(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch {}
+  }
+  return [];
 }
 
 async function updateCycle(

@@ -6,11 +6,13 @@ import {
   TouchableOpacity,
   Image,
   Alert,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
+import { useAppLock } from '../../context/AppLockContext';
 import { T } from '../../constants/theme';
 
 // Reusable menu item component
@@ -84,6 +86,7 @@ const MenuItem = ({
 export default function AccountScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { screenLockEnabled, toggleScreenLock } = useAppLock();
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -221,7 +224,37 @@ export default function AccountScreen() {
             onPress={() => router.push('/preferences' as any)}
           />
           <MenuItem icon="clock" label="Reminder" />
-          <MenuItem icon="shield" label="Account & Security" />
+          <MenuItem
+            icon="shield"
+            label="Account & Security"
+          />
+          {/* ── Screen Lock Toggle ────────────────────────────────────── */}
+          <TouchableOpacity
+            onPress={toggleScreenLock}
+            className="flex-row items-center justify-between py-4 border-b border-gray-100 active:opacity-70"
+          >
+            <View className="flex-row items-center flex-1">
+              <Ionicons
+                name={screenLockEnabled ? 'finger-print' : 'finger-print-outline'}
+                size={20}
+                color={screenLockEnabled ? T.pink.action : T.text.secondary}
+              />
+              <View className="ml-4 flex-1">
+                <Text className="text-base font-medium text-gray-700">Screen Lock</Text>
+                <Text className="text-xs text-gray-400 mt-0.5">
+                  {screenLockEnabled
+                    ? 'Fingerprint / PIN required to open'
+                    : 'Tap to enable biometric lock'}
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={screenLockEnabled}
+              onValueChange={toggleScreenLock}
+              trackColor={{ false: '#E5E7EB', true: '#FBCFE8' }}
+              thumbColor={screenLockEnabled ? T.pink.action : '#9CA3AF'}
+            />
+          </TouchableOpacity>
           <MenuItem icon="credit-card" label="Payment Methods" />
           <MenuItem icon="file-text" label="Billing & Subscriptions" />
           <MenuItem icon="activity" label="Data & Analytics" />

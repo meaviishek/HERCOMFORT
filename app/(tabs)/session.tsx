@@ -635,7 +635,20 @@ export default function SessionScreen() {
   const [symptoms, setSymptoms] = useState<string[]>([]);
   const [presetDuration, setPresetDuration] = useState(15);
 
-  // ── Active Session State ───────────────────────────────────────────────────
+  // ── End session modal & card modals ─────────────────────────────
+  const [showEndModal, setShowEndModal] = useState(false);
+  const [activeModal, setActiveModal] = useState<'temp' | 'vib' | 'posture' | 'emg' | null>(null);
+
+  // Posture tracking (good=static, bad=kinematic)
+  const goodPostureFrames = useRef(0);
+  const totalPostureFrames = useRef(0);
+
+  // liveDataRef: read latest data inside 5Hz interval without adding liveData
+  // to effect deps (which would cause 20Hz re-render storms and crashes)
+  const liveDataRef = useRef(liveData);
+  useEffect(() => { liveDataRef.current = liveData; }, [liveData]);
+
+  // ── Active Session State ──────────────────────────────────────────
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -657,12 +670,11 @@ export default function SessionScreen() {
   const [heatEnabled, setHeatEnabled] = useState(true);
   const [targetTemp, setTargetTemp] = useState(40.0);
 
-  // ── End session modal ──────────────────────────────────────────────────────
-  const [showEndModal, setShowEndModal] = useState(false);
 
   // Live readings from hardware or belt telemetry
   const currentTemp = Number(liveData?.temp ?? liveData?.temperature ?? 37.0);
   const rawAnalog = Number(liveData?.raw_analog ?? 1700);
+  const emgEnvelope = Number((liveData as any)?.emgEnvelope ?? rawAnalog);
   const currentGx = Number(liveData?.gx ?? 0);
   const currentGy = Number(liveData?.gy ?? 0);
   const currentGz = Number(liveData?.gz ?? 1);
@@ -673,26 +685,43 @@ export default function SessionScreen() {
   );
   const contraction = classifyContraction(currentEmgRms, rawAnalog);
 
-  // Accumulate telemetry during active session
+  // CRASH FIX: accumulate telemetry at 5 Hz via interval instead of on every
+  // liveData update (20 Hz). Eliminates 20Hz setState cascade + bounds buffer.
   useEffect(() => {
-    if (sessionActive && liveData) {
-      emgBuffer.current = [...emgBuffer.current.slice(-150), rawAnalog];
-      gyroBuffer.current = [...gyroBuffer.current.slice(-150), { gx: currentGx, gy: currentGy, gz: currentGz }];
-      tempBuffer.current = [...tempBuffer.current.slice(-150), currentTemp];
+    if (!sessionActive) return;
+    const accInterval = setInterval(() => {
+      const d = liveDataRef.current;
+      if (!d) return;
+      const t = Number(d.temp ?? d.temperature ?? 37.0);
+      const a = Number(d.raw_analog ?? 1700);
+      const env = Number((d as any).emgEnvelope ?? a);
+      const gx = Number(d.gx ?? 0);
+      const gy = Number(d.gy ?? 0);
+      const gz = Number(d.gz ?? 1);
 
-      // Batch item with timestamp (WITHOUT threshold)
-      batchReadingsBuffer.current.push({
-        deviceId: liveData.deviceId || connectedDevice?.name || 'HER-COMFORT',
-        sessionId: currentSessionId.current,
-        temp: currentTemp,
-        gx: currentGx,
-        gy: currentGy,
-        gz: currentGz,
-        raw_analog: rawAnalog,
-        timestamp: Date.now(),
-      });
-    }
-  }, [liveData, sessionActive, currentTemp, rawAnalog, currentGx, currentGy, currentGz, connectedDevice]);
+      emgBuffer.current = [...emgBuffer.current.slice(-149), env];
+      gyroBuffer.current = [...gyroBuffer.current.slice(-149), { gx, gy, gz }];
+      tempBuffer.current = [...tempBuffer.current.slice(-149), t];
+
+      // Posture: static rest = good posture
+      totalPostureFrames.current += 1;
+      const mag = Math.sqrt(gx * gx + gy * gy + gz * gz);
+      if (mag < 1.08) goodPostureFrames.current += 1;
+
+      // CRASH FIX: cap at 500 to prevent OOM
+      if (batchReadingsBuffer.current.length < 500) {
+        batchReadingsBuffer.current.push({
+          deviceId: (d as any).deviceId || connectedDevice?.name || 'HER-COMFORT',
+          sessionId: currentSessionId.current,
+          temp: t, gx, gy, gz,
+          raw_analog: a,
+          emgEnvelope: env,
+          timestamp: Date.now(),
+        });
+      }
+    }, 200);
+    return () => clearInterval(accInterval);
+  }, [sessionActive, connectedDevice]);
 
   // Session timer
   useEffect(() => {
@@ -747,88 +776,66 @@ export default function SessionScreen() {
 
     currentSessionId.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     setSessionSeconds(0);
-    emgBuffer.current = [rawAnalog];
-    gyroBuffer.current = [{ gx: currentGx, gy: currentGy, gz: currentGz }];
-    tempBuffer.current = [currentTemp];
+    emgBuffer.current = [];
+    gyroBuffer.current = [];
+    tempBuffer.current = [];
     batchReadingsBuffer.current = [];
+    goodPostureFrames.current = 0;
+    totalPostureFrames.current = 0;
     setSessionActive(true);
 
     try {
-      await sendCommand({
-        heater: heatEnabled,
-        motor: vibEnabled,
-        target_temp: targetTemp,
-        vib_intensity: vibIntensity,
-        vib_mode: vibMode,
-      });
+      await sendCommand({ heater: heatEnabled, motor: vibEnabled, target_temp: targetTemp, vib_intensity: vibIntensity, vib_mode: vibMode });
     } catch (_) {}
-  }, [isConnected, rawAnalog, currentGx, currentGy, currentGz, currentTemp, heatEnabled, vibEnabled, targetTemp, vibIntensity, vibMode, sendCommand, router]);
+  }, [isConnected, heatEnabled, vibEnabled, targetTemp, vibIntensity, vibMode, sendCommand, router]);
 
   // ── End Session & Save ─────────────────────────────────────────────────────
   const handleEndSession = useCallback(
     async (painAfter: number) => {
       setShowEndModal(false);
       setSessionActive(false);
+      setActiveModal(null);
 
-      try {
-        await sendCommand({ heater: false, motor: false });
-      } catch (_) {}
+      try { await sendCommand({ heater: false, motor: false }); } catch (_) {}
 
-      // Flush remaining batch readings immediately
       if (batchReadingsBuffer.current.length > 0) {
         const remaining = [...batchReadingsBuffer.current];
         batchReadingsBuffer.current = [];
         ApiService.postBatchReadings(remaining).catch(() => {});
       }
 
-      // Exact elapsed time in seconds and rounded minutes
       const durationSecs = sessionSeconds;
       const durationMin = Math.max(1, Math.round(durationSecs / 60));
-
       const allEmg = emgBuffer.current.length > 0 ? emgBuffer.current : [rawAnalog];
       const sessionEmgRms = calculateEmgRms(allEmg);
-
       const allTemp = tempBuffer.current.length > 0 ? tempBuffer.current : [currentTemp];
       const avgTemp = parseFloat((allTemp.reduce((a, b) => a + b, 0) / allTemp.length).toFixed(1));
       const maxTemp = parseFloat(Math.max(...allTemp).toFixed(1));
-
-      const imuStats = calculateImuStats(
-        gyroBuffer.current.length > 0 ? gyroBuffer.current : [{ gx: 0, gy: 0, gz: 1 }]
-      );
+      const imuStats = calculateImuStats(gyroBuffer.current.length > 0 ? gyroBuffer.current : [{ gx: 0, gy: 0, gz: 1 }]);
       const finalContraction = classifyContraction(sessionEmgRms, rawAnalog).text;
-
       const notes = `Clinical session concluded. Target ${targetTemp}°C heat with ${vibMode} stimulation at ${vibIntensity}%. Pain ${
-        painAfter < painLevel ? `reduced from ${painLevel} to ${painAfter}` : `recorded at ${painAfter}/10`
-      }.`;
+        painAfter < painLevel ? `reduced from ${painLevel} to ${painAfter}` : `recorded at ${painAfter}/10`}.`;
 
       try {
         await sessionService.saveSession({
-          date: new Date().toISOString(),
-          durationSeconds: durationSecs,
-          durationMin,
-          location,
-          painBefore: painLevel,
-          painAfter,
-          avgTemp,
-          maxTemp,
-          targetTemp,
-          vibIntensity,
-          vibMode,
-          symptoms,
-          emgPoints: allEmg.slice(-30),
-          emgRms: sessionEmgRms,
+          date: new Date().toISOString(), durationSeconds: durationSecs, durationMin,
+          location, painBefore: painLevel, painAfter,
+          avgTemp, maxTemp, targetTemp, vibIntensity, vibMode, symptoms,
+          emgPoints: allEmg.slice(-30), emgRms: sessionEmgRms,
           imuStats: { avgMovement: imuStats.avgMovement, maxMovement: imuStats.maxMovement },
-          contractionLevel: finalContraction,
-          notes,
+          contractionLevel: finalContraction, notes,
         });
       } catch (err) {
         console.error('Failed to save session:', err);
+        Alert.alert('Save Failed', 'Session could not be saved. Check your connection.');
       }
 
       setSessionSeconds(0);
       emgBuffer.current = [];
       gyroBuffer.current = [];
       tempBuffer.current = [];
+      goodPostureFrames.current = 0;
+      totalPostureFrames.current = 0;
     },
     [sessionSeconds, rawAnalog, currentTemp, targetTemp, vibMode, vibIntensity, painLevel, location, symptoms, sendCommand]
   );
@@ -878,386 +885,276 @@ export default function SessionScreen() {
     [sessionActive, sendCommand]
   );
 
-  // ═════════════════════════════════════════════════════════════════════════════
-  // ACTIVE SESSION VIEW: AI-POWERED CLINICAL BIO-INTELLIGENCE CONSOLE (LITE UI)
-  // ═════════════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // ACTIVE SESSION VIEW — compact cards + tap-to-expand modals
+  // ═══════════════════════════════════════════════════════════════════════════════
   if (sessionActive) {
     const tempPoints = tempBuffer.current.length > 2 ? tempBuffer.current : [36.5, 36.8, currentTemp];
-    const gyroPoints =
-      gyroBuffer.current.length > 2
-        ? gyroBuffer.current
-        : [{ gx: 0, gy: 0, gz: 1 }, { gx: currentGx, gy: currentGy, gz: currentGz }];
+    const gyroPoints = gyroBuffer.current.length > 2 ? gyroBuffer.current : [{ gx: 0, gy: 0, gz: 1 }, { gx: currentGx, gy: currentGy, gz: currentGz }];
     const emgPoints = emgBuffer.current.length > 2 ? emgBuffer.current : [1700, rawAnalog];
-
-    const sessionAvgTemp = (
-      tempBuffer.current.reduce((a, b) => a + b, 0) / Math.max(tempBuffer.current.length, 1)
-    ).toFixed(1);
+    const sessionAvgTemp = (tempBuffer.current.reduce((a, b) => a + b, 0) / Math.max(tempBuffer.current.length, 1)).toFixed(1);
     const sessionMaxTemp = Math.max(...(tempBuffer.current.length ? tempBuffer.current : [currentTemp])).toFixed(1);
     const progressPct = Math.min(100, (sessionSeconds / (presetDuration * 60)) * 100);
     const imuMetrics = calculateImuStats(gyroPoints);
+    const goodPct = totalPostureFrames.current > 0 ? Math.round((goodPostureFrames.current / totalPostureFrames.current) * 100) : 100;
+    const badPct = 100 - goodPct;
+    const postureLabel = goodPct >= 75 ? 'GOOD POSTURE' : goodPct >= 50 ? 'FAIR POSTURE' : 'POOR POSTURE';
+    const postureColor = goodPct >= 75 ? THEME.accentGreen : goodPct >= 50 ? THEME.accentAmber : '#DC2626';
 
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: THEME.bg }}>
-        {/* Top Clinical AI Cockpit Bar (Lite) */}
+
+        {/* Timer + mini EMG header */}
         <View style={styles.activeHeaderBar}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: THEME.accentGreen }} />
-              <Text style={{ fontSize: 11, fontWeight: '800', color: THEME.accentPink, letterSpacing: 1.2 }}>
-                AI NEURAL BIO-FEEDBACK: ACTIVE
-              </Text>
+              <Text style={{ fontSize: 10, fontWeight: '800', color: THEME.accentPink, letterSpacing: 1.1 }}>SESSION ACTIVE</Text>
             </View>
             <View style={{ backgroundColor: '#F1F5F9', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: '#E2E8F0' }}>
-              <Text style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: '700', color: THEME.textSecondary }}>
-                TARGET: {presetDuration} MIN
-              </Text>
+              <Text style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: '700', color: THEME.textSecondary }}>TARGET: {presetDuration} MIN</Text>
             </View>
           </View>
-
-          {/* Large Monospace Clinical Timer */}
-          <Text style={{ fontSize: 46, fontFamily: 'monospace', fontWeight: '900', color: THEME.textPrimary, letterSpacing: -1, marginTop: 2 }}>
-            {fmtTimer(sessionSeconds)}
-          </Text>
-
-          {/* Precision Target Progress Bar */}
+          <Text style={{ fontSize: 44, fontFamily: 'monospace', fontWeight: '900', color: THEME.textPrimary, letterSpacing: -1, marginTop: 2 }}>{fmtTimer(sessionSeconds)}</Text>
           <View style={{ width: '100%', height: 5, backgroundColor: '#E2E8F0', borderRadius: 2.5, marginTop: 4, overflow: 'hidden' }}>
             <View style={{ width: `${progressPct}%`, height: '100%', backgroundColor: THEME.accentPink, borderRadius: 2.5 }} />
           </View>
+          <View style={{ width: '100%', marginTop: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+              <Text style={{ fontSize: 9, fontWeight: '800', color: THEME.accentPurple, letterSpacing: 0.8 }}>LIVE EMG·{contraction.text}</Text>
+              <Text style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: '700', color: THEME.textMuted }}>RMS {currentEmgRms}µV</Text>
+            </View>
+            <BioAmpWaveform points={emgPoints.slice(-40)} height={42} />
+          </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+                <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
 
-          {/* AI Neural Diagnostics Banner (Lite) */}
-          <View style={styles.aiDiagnosticCard}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MaterialCommunityIcons name="chip" size={16} color={THEME.accentBlue} />
-                <Text style={{ fontSize: 11, fontWeight: '800', color: THEME.accentBlue, letterSpacing: 0.8 }}>
-                  NEURAL DIAGNOSTIC INFERENCE
-                </Text>
+          {/* 2x2 summary card grid */}
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+            <TouchableOpacity style={[styles.summaryCard, { flex: 1 }]} onPress={() => setActiveModal('temp')} activeOpacity={0.8}>
+              <View style={[styles.summaryIconBox, { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }]}>
+                <MaterialCommunityIcons name="thermometer-lines" size={20} color="#DC2626" />
               </View>
-              <Text style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: '700', color: THEME.textMuted }}>
-                LATENCY: 8ms
-              </Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: contraction.bg, borderWidth: 1, borderColor: contraction.borderColor, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, gap: 6 }}>
-                <MaterialCommunityIcons name={contraction.iconName} size={15} color={contraction.color} />
-                <Text style={{ fontSize: 11, fontWeight: '800', color: contraction.color, letterSpacing: 0.5 }}>
-                  {contraction.text}
-                </Text>
+              <Text style={styles.summaryLbl}>TEMPERATURE</Text>
+              <Text style={[styles.summaryVal, { color: '#DC2626' }]}>{currentTemp.toFixed(1)}°C</Text>
+              <Text style={styles.summarySub}>{heatEnabled ? `Heater ON · ${targetTemp}°C` : 'Heater OFF'}</Text>
+              <View style={styles.tapChevron}><Feather name="chevron-right" size={12} color={THEME.textMuted} /></View>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.summaryCard, { flex: 1 }]} onPress={() => setActiveModal('vib')} activeOpacity={0.8}>
+              <View style={[styles.summaryIconBox, { backgroundColor: '#FCE7F3', borderColor: '#FBCFE8' }]}>
+                <MaterialCommunityIcons name="waveform" size={20} color={THEME.accentPink} />
               </View>
-
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ fontSize: 13, fontFamily: 'monospace', fontWeight: '800', color: THEME.accentPurple }}>
-                  RMS: {currentEmgRms} µV
-                </Text>
-                <Text style={{ fontSize: 10, color: THEME.textMuted }}>Pelvic Tone: {rawAnalog}</Text>
+              <Text style={styles.summaryLbl}>VIBRATION</Text>
+              <Text style={[styles.summaryVal, { color: THEME.accentPink }]}>{vibEnabled ? `${Math.round(vibIntensity)}%` : 'OFF'}</Text>
+              <Text style={styles.summarySub}>{vibEnabled ? vibMode : 'Actuator idle'}</Text>
+              <View style={styles.tapChevron}><Feather name="chevron-right" size={12} color={THEME.textMuted} /></View>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+            <TouchableOpacity style={[styles.summaryCard, { flex: 1 }]} onPress={() => setActiveModal('posture')} activeOpacity={0.8}>
+              <View style={[styles.summaryIconBox, { backgroundColor: '#F0F9FF', borderColor: '#E0F2FE' }]}>
+                <MaterialCommunityIcons name="axis-arrow" size={20} color={THEME.accentBlue} />
               </View>
-            </View>
+              <Text style={styles.summaryLbl}>POSTURE</Text>
+              <Text style={[styles.summaryVal, { color: postureColor }]}>{goodPct}%</Text>
+              <Text style={styles.summarySub}>{postureLabel}</Text>
+              <View style={styles.tapChevron}><Feather name="chevron-right" size={12} color={THEME.textMuted} /></View>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.summaryCard, { flex: 1 }]} onPress={() => setActiveModal('emg')} activeOpacity={0.8}>
+              <View style={[styles.summaryIconBox, { backgroundColor: '#F3E8FF', borderColor: '#E9D5FF' }]}>
+                <MaterialCommunityIcons name="sine-wave" size={20} color={THEME.accentPurple} />
+              </View>
+              <Text style={styles.summaryLbl}>MUSCLE EMG</Text>
+              <Text style={[styles.summaryVal, { color: THEME.accentPurple }]}>{currentEmgRms} µV</Text>
+              <Text style={[styles.summarySub, { color: contraction.color }]}>{contraction.text}</Text>
+              <View style={styles.tapChevron}><Feather name="chevron-right" size={12} color={THEME.textMuted} /></View>
+            </TouchableOpacity>
           </View>
 
-          {/* ───────────────────────────────────────────────────────────────────
-              PANEL 1: VIBRATION & NEURO-ACTUATION CONTROL
-             ─────────────────────────────────────────────────────────────────── */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={styles.panelIconBox}>
-                  <MaterialCommunityIcons name="waveform" size={18} color={THEME.accentPink} />
+          {/* All readings strip */}
+          <View style={styles.readingsStrip}>
+            {[
+              { l: 'GX', v: currentGx.toFixed(2), c: GYRO_X_COLOR },
+              { l: 'GY', v: currentGy.toFixed(2), c: GYRO_Y_COLOR },
+              { l: 'GZ', v: currentGz.toFixed(2), c: GYRO_Z_COLOR },
+              { l: 'ADC', v: String(rawAnalog), c: THEME.accentPurple },
+              { l: 'AVG°C', v: sessionAvgTemp, c: '#DC2626' },
+            ].map((it, idx, arr) => (
+              <React.Fragment key={it.l}>
+                <View style={styles.readingItem}>
+                  <Text style={styles.readingLbl}>{it.l}</Text>
+                  <Text style={[styles.readingVal, { color: it.c }]}>{it.v}</Text>
                 </View>
-                <View>
-                  <Text style={styles.cardTitle}>VIBRATION ACTUATOR CONTROL</Text>
-                  <Text style={styles.cardSubtitle}>PWM Frequency & Intensity Duty</Text>
-                </View>
-              </View>
-              <PrecisionToggle value={vibEnabled} onChange={handleVibToggle} />
-            </View>
-
-            {/* Intensity Readout */}
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 12, marginBottom: 8 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-                <Text style={{ fontSize: 28, fontFamily: 'monospace', fontWeight: '900', color: THEME.accentPink }}>
-                  {vibEnabled ? `${Math.round(vibIntensity)}%` : 'OFF'}
-                </Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: THEME.textSecondary }}>
-                  Speed {vibIntensity < 35 ? 'Low' : vibIntensity < 75 ? 'Medium' : 'High'}
-                </Text>
-              </View>
-              <View style={{ backgroundColor: vibEnabled ? '#D1FAE5' : '#F1F5F9', borderWidth: 1, borderColor: vibEnabled ? '#A7F3D0' : '#E2E8F0', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                <Text style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: '800', color: vibEnabled ? THEME.accentGreen : THEME.textMuted }}>
-                  {vibEnabled ? `ACTIVE • ${vibMode.toUpperCase()}` : 'ACTUATOR IDLE'}
-                </Text>
-              </View>
-            </View>
-
-            {/* Continuous Slider Low to High */}
-            <PrecisionSlider
-              value={vibIntensity}
-              min={0}
-              max={100}
-              onChange={handleVibIntensityChange}
-              disabled={!vibEnabled}
-            />
-
-            {/* Discrete Speed Levels */}
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-              {[
-                { label: 'Low (30%)', val: 30 },
-                { label: 'Med (65%)', val: 65 },
-                { label: 'High (95%)', val: 95 },
-              ].map((lvl) => (
-                <TouchableOpacity
-                  key={lvl.label}
-                  disabled={!vibEnabled}
-                  onPress={() => handleVibIntensityChange(lvl.val)}
-                  style={[
-                    styles.quickChip,
-                    Math.abs(vibIntensity - lvl.val) < 15 && vibEnabled && styles.quickChipActive,
-                    !vibEnabled && { opacity: 0.5 },
-                  ]}
-                >
-                  <Text style={[styles.quickChipText, Math.abs(vibIntensity - lvl.val) < 15 && vibEnabled && styles.quickChipTextActive]}>
-                    {lvl.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Modes */}
-            <Text style={styles.subHeading}>NEURO-STIMULATION PATTERN</Text>
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-              {VIB_MODES.map((m) => {
-                const active = vibMode === m;
-                return (
-                  <TouchableOpacity
-                    key={m}
-                    disabled={!vibEnabled}
-                    onPress={() => handleVibModeChange(m)}
-                    style={[styles.modeChip, active && styles.modeChipActive, !vibEnabled && { opacity: 0.5 }]}
-                  >
-                    <Text style={[styles.modeChipText, active && styles.modeChipTextActive]}>
-                      {m}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                {idx < arr.length - 1 && <View style={styles.readingDivider} />}
+              </React.Fragment>
+            ))}
           </View>
 
-          {/* ───────────────────────────────────────────────────────────────────
-              PANEL 2: PRECISION PID HEATING CONTROL
-             ─────────────────────────────────────────────────────────────────── */}
-          <View style={[styles.card, { marginTop: 14 }]}>
-            <View style={styles.cardHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={[styles.panelIconBox, { backgroundColor: '#FFF1F2', borderColor: '#FFE4E6' }]}>
-                  <MaterialCommunityIcons name="fire" size={18} color={THEME.accentPink} />
-                </View>
-                <View>
-                  <Text style={styles.cardTitle}>PID THERMAL REGULATION</Text>
-                  <Text style={styles.cardSubtitle}>Dual Thermal Closed-Loop Control</Text>
-                </View>
-              </View>
-              <PrecisionToggle value={heatEnabled} onChange={handleHeatToggle} />
-            </View>
-
-            {/* Circular Gauge */}
-            <ClinicalTempRing current={currentTemp} target={targetTemp} />
-
-            {/* Target Stepper */}
-            <View style={styles.tempAdjusterBox}>
-              <TouchableOpacity onPress={() => adjustTarget(-0.5)} style={styles.stepperBtn}>
-                <Feather name="minus" size={18} color={THEME.textPrimary} />
-              </TouchableOpacity>
-              <View style={{ alignItems: 'center' }}>
-                <Text style={{ fontSize: 16, fontFamily: 'monospace', fontWeight: '800', color: THEME.textPrimary }}>
-                  {targetTemp.toFixed(1)}°C SETPOINT
-                </Text>
-                <Text style={{ fontSize: 10, color: THEME.textMuted }}>Safe Thermal Envelope: 36.0°C – 43.0°C</Text>
-              </View>
-              <TouchableOpacity onPress={() => adjustTarget(0.5)} style={styles.stepperBtn}>
-                <Feather name="plus" size={18} color={THEME.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Presets */}
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-              {[
-                { label: '38.0°C Gentle', temp: 38 },
-                { label: '40.0°C Therapeutic', temp: 40 },
-                { label: '42.0°C Deep Relief', temp: 42 },
-              ].map((preset) => (
-                <TouchableOpacity
-                  key={preset.label}
-                  onPress={() => {
-                    setTargetTemp(preset.temp);
-                    if (sessionActive) sendCommand({ target_temp: preset.temp }).catch(() => {});
-                  }}
-                  style={[styles.quickChip, targetTemp === preset.temp && styles.quickChipActive]}
-                >
-                  <Text style={[styles.quickChipText, targetTemp === preset.temp && styles.quickChipTextActive]}>
-                    {preset.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* ───────────────────────────────────────────────────────────────────
-              PANEL 3: TRI-AXIAL IMU DYNAMICS (ALL-IN-ONE XYZ GRAPH)
-             ─────────────────────────────────────────────────────────────────── */}
-          <View style={[styles.card, { marginTop: 14 }]}>
-            <View style={styles.cardHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={[styles.panelIconBox, { backgroundColor: '#F0F9FF', borderColor: '#E0F2FE' }]}>
-                  <MaterialCommunityIcons name="axis-arrow" size={18} color={THEME.accentBlue} />
-                </View>
-                <View>
-                  <Text style={styles.cardTitle}>TRI-AXIAL IMU DYNAMICS (ALL-IN-ONE XYZ)</Text>
-                  <Text style={styles.cardSubtitle}>Vector Accelerometer Oscilloscope (MPU6050)</Text>
-                </View>
-              </View>
-              <View style={{ backgroundColor: '#F1F5F9', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#E2E8F0' }}>
-                <Text style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: '700', color: THEME.accentBlue }}>MPU6050</Text>
-              </View>
-            </View>
-
-            {/* All in one XYZ Combined Graph */}
-            <GyroCombinedGraph data={gyroPoints} height={100} />
-
-            {/* Statistics */}
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-              <View style={styles.telemetryStatCard}>
-                <Text style={styles.telemetryStatLbl}>AVG MOTION</Text>
-                <Text style={styles.telemetryStatVal}>{imuMetrics.avgMovement} g</Text>
-              </View>
-              <View style={styles.telemetryStatCard}>
-                <Text style={styles.telemetryStatLbl}>PEAK DYNAMICS</Text>
-                <Text style={styles.telemetryStatVal}>{imuMetrics.maxMovement} g</Text>
-              </View>
-              <View style={styles.telemetryStatCard}>
-                <Text style={styles.telemetryStatLbl}>POSTURAL STATE</Text>
-                <Text style={[styles.telemetryStatVal, { color: THEME.accentGreen, fontSize: 11 }]}>
-                  {imuMetrics.postureText}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* ───────────────────────────────────────────────────────────────────
-              PANEL 4: DS18B20 CLINICAL TEMPERATURE MONITOR
-             ─────────────────────────────────────────────────────────────────── */}
-          <View style={[styles.card, { marginTop: 14 }]}>
-            <View style={styles.cardHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={[styles.panelIconBox, { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }]}>
-                  <MaterialCommunityIcons name="thermometer-lines" size={18} color="#DC2626" />
-                </View>
-                <View>
-                  <Text style={styles.cardTitle}>DS18B20 CLINICAL TEMPERATURE</Text>
-                  <Text style={styles.cardSubtitle}>Belt Probe Sensor Telemetry</Text>
-                </View>
-              </View>
-              <View style={{ backgroundColor: currentTemp <= 43 ? '#D1FAE5' : '#FEE2E2', borderWidth: 1, borderColor: currentTemp <= 43 ? '#A7F3D0' : '#FECACA', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                <Text style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: '800', color: currentTemp <= 43 ? THEME.accentGreen : '#DC2626' }}>
-                  {currentTemp <= 43 ? 'THERMAL NORMAL' : 'OVERHEAT ALERT'}
-                </Text>
-              </View>
-            </View>
-
-            {/* Readouts */}
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 10 }}>
-              <View>
-                <Text style={{ fontSize: 34, fontFamily: 'monospace', fontWeight: '900', color: '#DC2626', letterSpacing: -1 }}>
-                  {currentTemp.toFixed(1)}°C
-                </Text>
-                <Text style={{ fontSize: 10, color: THEME.textMuted, marginTop: 1 }}>PROBE READING</Text>
-              </View>
-
-              <View style={{ flexDirection: 'row', gap: 14 }}>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontSize: 16, fontFamily: 'monospace', fontWeight: '800', color: THEME.textPrimary }}>
-                    {sessionAvgTemp}°C
-                  </Text>
-                  <Text style={{ fontSize: 10, color: THEME.textMuted }}>SESSION AVG</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontSize: 16, fontFamily: 'monospace', fontWeight: '800', color: '#E11D48' }}>
-                    {sessionMaxTemp}°C
-                  </Text>
-                  <Text style={{ fontSize: 10, color: THEME.textMuted }}>PEAK REACHED</Text>
-                </View>
-              </View>
-            </View>
-
-            <Text style={styles.subHeading}>TEMPERATURE TREND TELEMETRY (°C)</Text>
-            <TempTrendGraph data={tempPoints} height={65} />
-          </View>
-
-          {/* ───────────────────────────────────────────────────────────────────
-              PANEL 5: BIOAMP MUSCLE ACTIVITY & RMS ANALYZER
-             ─────────────────────────────────────────────────────────────────── */}
-          <View style={[styles.card, { marginTop: 14 }]}>
-            <View style={styles.cardHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={[styles.panelIconBox, { backgroundColor: '#F3E8FF', borderColor: '#E9D5FF' }]}>
-                  <MaterialCommunityIcons name="sine-wave" size={18} color={THEME.accentPurple} />
-                </View>
-                <View>
-                  <Text style={styles.cardTitle}>BIOAMP MUSCLE ACTIVITY (EMG)</Text>
-                  <Text style={styles.cardSubtitle}>Pelvic & Uterine Tone Analysis</Text>
-                </View>
-              </View>
-              <View style={{ backgroundColor: '#F3E8FF', borderWidth: 1, borderColor: '#DDD6FE', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 4 }}>
-                <Text style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: '700', color: THEME.accentPurple }}>AFE 10-BIT</Text>
-              </View>
-            </View>
-
-            {/* Contraction Words Badge & Live EMG RMS */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 4 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: contraction.bg, borderWidth: 1, borderColor: contraction.borderColor, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, gap: 6 }}>
-                <MaterialCommunityIcons name={contraction.iconName} size={15} color={contraction.color} />
-                <Text style={{ fontSize: 12, fontWeight: '800', color: contraction.color, letterSpacing: 0.5 }}>
-                  {contraction.text}
-                </Text>
-              </View>
-
-              <View style={{ alignItems: 'flex-end' }}>
-                <View style={{ backgroundColor: '#F3E8FF', borderWidth: 1, borderColor: '#DDD6FE', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                  <Text style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: '800', color: THEME.accentPurple }}>
-                    RMS: {currentEmgRms} µV
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 10, color: THEME.textMuted, marginTop: 2 }}>ADC RAW: {rawAnalog}</Text>
-              </View>
-            </View>
-
-            {/* Waveform */}
-            <BioAmpWaveform points={emgPoints} height={85} />
-          </View>
-
-          {/* Terminate Session Button */}
-          <TouchableOpacity
-            onPress={() => setShowEndModal(true)}
-            style={styles.endBtn}
-            activeOpacity={0.85}
-          >
+          <TouchableOpacity onPress={() => setShowEndModal(true)} style={styles.endBtn} activeOpacity={0.85}>
             <Feather name="stop-circle" size={18} color="#FFFFFF" />
-            <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 14, letterSpacing: 1, marginLeft: 8 }}>
-              TERMINATE RELIEF SESSION
-            </Text>
+            <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 14, letterSpacing: 1, marginLeft: 8 }}>END SESSION & SAVE</Text>
           </TouchableOpacity>
         </ScrollView>
 
-        <EndSessionModal
-          visible={showEndModal}
-          onEnd={handleEndSession}
-          onCancel={() => setShowEndModal(false)}
-          painBefore={painLevel}
-          elapsedSecs={sessionSeconds}
-        />
+        {/* ══ TEMPERATURE MODAL ══ */}
+        <Modal visible={activeModal === 'temp'} transparent animationType="slide">
+          <View style={styles.modalBg}><View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Temperature Control</Text>
+              <TouchableOpacity onPress={() => setActiveModal(null)} style={styles.modalClose}><Feather name="x" size={18} color={THEME.textSecondary} /></TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <ClinicalTempRing current={currentTemp} target={targetTemp} />
+              <View style={{ flexDirection: 'row', gap: 8, marginVertical: 12 }}>
+                {[{ l: 'CURRENT', v: `${currentTemp.toFixed(1)}°C`, c: '#DC2626' }, { l: 'AVG', v: `${sessionAvgTemp}°C`, c: THEME.textPrimary }, { l: 'PEAK', v: `${sessionMaxTemp}°C`, c: '#E11D48' }].map(it => (
+                  <View key={it.l} style={[styles.telemetryStatCard, { flex: 1 }]}>
+                    <Text style={styles.telemetryStatLbl}>{it.l}</Text>
+                    <Text style={[styles.telemetryStatVal, { color: it.c, fontSize: 16 }]}>{it.v}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.subHeading}>TEMPERATURE TREND</Text>
+              <TempTrendGraph data={tempPoints} height={65} />
+              <View style={[styles.cardHeader, { marginTop: 16 }]}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: THEME.textPrimary }}>Heater</Text>
+                <PrecisionToggle value={heatEnabled} onChange={handleHeatToggle} />
+              </View>
+              <View style={styles.tempAdjusterBox}>
+                <TouchableOpacity onPress={() => adjustTarget(-0.5)} style={styles.stepperBtn}><Feather name="minus" size={18} color={THEME.textPrimary} /></TouchableOpacity>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ fontSize: 16, fontFamily: 'monospace', fontWeight: '800', color: THEME.textPrimary }}>{targetTemp.toFixed(1)}°C SETPOINT</Text>
+                  <Text style={{ fontSize: 10, color: THEME.textMuted }}>36.0°C – 43.0°C</Text>
+                </View>
+                <TouchableOpacity onPress={() => adjustTarget(0.5)} style={styles.stepperBtn}><Feather name="plus" size={18} color={THEME.textPrimary} /></TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 20 }}>
+                {[{ label: '38°C Gentle', temp: 38 }, { label: '40°C Therapy', temp: 40 }, { label: '42°C Deep', temp: 42 }].map(p => (
+                  <TouchableOpacity key={p.label} onPress={() => { setTargetTemp(p.temp); sendCommand({ target_temp: p.temp }).catch(() => {}); }}
+                    style={[styles.quickChip, targetTemp === p.temp && styles.quickChipActive]}>
+                    <Text style={[styles.quickChipText, targetTemp === p.temp && styles.quickChipTextActive]}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          </View></View>
+        </Modal>
+
+        {/* ══ VIBRATION MODAL ══ */}
+        <Modal visible={activeModal === 'vib'} transparent animationType="slide">
+          <View style={styles.modalBg}><View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Vibration Control</Text>
+              <TouchableOpacity onPress={() => setActiveModal(null)} style={styles.modalClose}><Feather name="x" size={18} color={THEME.textSecondary} /></TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={[styles.cardHeader, { marginBottom: 16 }]}>
+                <View>
+                  <Text style={{ fontSize: 28, fontFamily: 'monospace', fontWeight: '900', color: THEME.accentPink }}>{vibEnabled ? `${Math.round(vibIntensity)}%` : 'OFF'}</Text>
+                  <Text style={{ fontSize: 11, color: THEME.textSecondary }}>{vibEnabled ? `${vibMode} · ${vibIntensity < 35 ? 'Low' : vibIntensity < 75 ? 'Medium' : 'High'}` : 'Actuator Idle'}</Text>
+                </View>
+                <PrecisionToggle value={vibEnabled} onChange={handleVibToggle} />
+              </View>
+              <PrecisionSlider value={vibIntensity} min={0} max={100} onChange={handleVibIntensityChange} disabled={!vibEnabled} />
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                {[{ label: 'Low 30%', val: 30 }, { label: 'Med 65%', val: 65 }, { label: 'High 95%', val: 95 }].map(lvl => (
+                  <TouchableOpacity key={lvl.label} disabled={!vibEnabled} onPress={() => handleVibIntensityChange(lvl.val)}
+                    style={[styles.quickChip, Math.abs(vibIntensity - lvl.val) < 15 && vibEnabled && styles.quickChipActive, !vibEnabled && { opacity: 0.4 }]}>
+                    <Text style={[styles.quickChipText, Math.abs(vibIntensity - lvl.val) < 15 && vibEnabled && styles.quickChipTextActive]}>{lvl.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={[styles.subHeading, { marginTop: 18 }]}>STIMULATION PATTERN</Text>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+                {VIB_MODES.map(m => {
+                  const isActive = vibMode === m;
+                  return (
+                    <TouchableOpacity key={m} disabled={!vibEnabled} onPress={() => handleVibModeChange(m)}
+                      style={[styles.modeChip, isActive && styles.modeChipActive, !vibEnabled && { opacity: 0.4 }]}>
+                      <Text style={[styles.modeChipText, isActive && styles.modeChipTextActive]}>{m}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View></View>
+        </Modal>
+
+        {/* ══ POSTURE MODAL ══ */}
+        <Modal visible={activeModal === 'posture'} transparent animationType="slide">
+          <View style={styles.modalBg}><View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Posture Analysis</Text>
+              <TouchableOpacity onPress={() => setActiveModal(null)} style={styles.modalClose}><Feather name="x" size={18} color={THEME.textSecondary} /></TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.postureScoreCard}>
+                <Text style={[styles.postureScorePct, { color: postureColor }]}>{goodPct}%</Text>
+                <Text style={[styles.postureScoreLabel, { color: postureColor }]}>{postureLabel}</Text>
+                <Text style={{ fontSize: 11, color: THEME.textMuted, marginTop: 4 }}>{goodPostureFrames.current} good / {totalPostureFrames.current} total frames</Text>
+                <View style={{ width: '100%', height: 14, borderRadius: 7, backgroundColor: '#FEE2E2', overflow: 'hidden', marginTop: 14 }}>
+                  <View style={{ width: `${goodPct}%`, height: '100%', backgroundColor: THEME.accentGreen, borderRadius: 7 }} />
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: THEME.accentGreen }}>GOOD {goodPct}%</Text>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#DC2626' }}>POOR {badPct}%</Text>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                {[{ l: 'AVG MOTION', v: `${imuMetrics.avgMovement} g`, c: THEME.textPrimary }, { l: 'PEAK', v: `${imuMetrics.maxMovement} g`, c: THEME.textPrimary }, { l: 'STATE', v: imuMetrics.postureText, c: THEME.accentGreen }].map(it => (
+                  <View key={it.l} style={[styles.telemetryStatCard, { flex: 1 }]}>
+                    <Text style={styles.telemetryStatLbl}>{it.l}</Text>
+                    <Text style={[styles.telemetryStatVal, { color: it.c, fontSize: 10 }]}>{it.v}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={[styles.subHeading, { marginTop: 14 }]}>GYROSCOPE XYZ LIVE</Text>
+              <GyroCombinedGraph data={gyroPoints} height={100} />
+              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 10, marginBottom: 20 }}>
+                {[{ c: GYRO_X_COLOR, l: 'X-Axis' }, { c: GYRO_Y_COLOR, l: 'Y-Axis' }, { c: GYRO_Z_COLOR, l: 'Z-Axis' }].map(it => (
+                  <View key={it.l} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: it.c }} />
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: it.c }}>{it.l}</Text>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View></View>
+        </Modal>
+
+        {/* ══ EMG MODAL ══ */}
+        <Modal visible={activeModal === 'emg'} transparent animationType="slide">
+          <View style={styles.modalBg}><View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Muscle EMG Analysis</Text>
+              <TouchableOpacity onPress={() => setActiveModal(null)} style={styles.modalClose}><Feather name="x" size={18} color={THEME.textSecondary} /></TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: contraction.bg, borderWidth: 1, borderColor: contraction.borderColor, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, gap: 6 }}>
+                  <MaterialCommunityIcons name={contraction.iconName} size={16} color={contraction.color} />
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: contraction.color }}>{contraction.text}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ fontSize: 20, fontFamily: 'monospace', fontWeight: '900', color: THEME.accentPurple }}>{currentEmgRms} µV</Text>
+                  <Text style={{ fontSize: 10, color: THEME.textMuted }}>RMS · ADC: {rawAnalog}</Text>
+                </View>
+              </View>
+              <Text style={styles.subHeading}>BIOAMP WAVEFORM (EMG)</Text>
+              <BioAmpWaveform points={emgPoints} height={100} />
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 14, marginBottom: 20 }}>
+                {[{ l: 'LIVE RMS', v: `${currentEmgRms} µV`, c: THEME.accentPurple }, { l: 'ADC RAW', v: String(rawAnalog), c: THEME.textPrimary }, { l: 'ENVELOPE', v: String(emgEnvelope), c: THEME.accentPurple }].map(it => (
+                  <View key={it.l} style={[styles.telemetryStatCard, { flex: 1 }]}>
+                    <Text style={styles.telemetryStatLbl}>{it.l}</Text>
+                    <Text style={[styles.telemetryStatVal, { color: it.c }]}>{it.v}</Text>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View></View>
+        </Modal>
+
+        <EndSessionModal visible={showEndModal} onEnd={handleEndSession} onCancel={() => setShowEndModal(false)} painBefore={painLevel} elapsedSecs={sessionSeconds} />
       </SafeAreaView>
     );
   }
@@ -1662,5 +1559,137 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
-
+  // Card-tap summary cards
+  summaryCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#F1F5F9',
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+    position: 'relative',
+  },
+  summaryIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  summaryLbl: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.textMuted,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  summaryVal: {
+    fontSize: 18,
+    fontFamily: 'monospace',
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  summarySub: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  tapChevron: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+  },
+  // Readings strip
+  readingsStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginTop: 12,
+  },
+  readingItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  readingLbl: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: THEME.textMuted,
+    letterSpacing: 0.4,
+  },
+  readingVal: {
+    fontSize: 12,
+    fontFamily: 'monospace',
+    fontWeight: '800',
+    color: THEME.textPrimary,
+    marginTop: 2,
+  },
+  readingDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#E2E8F0',
+  },
+  // Modals
+  modalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: THEME.textPrimary,
+    letterSpacing: -0.3,
+  },
+  modalClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postureScoreCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  postureScorePct: {
+    fontSize: 42,
+    fontFamily: 'monospace',
+    fontWeight: '900',
+  },
+  postureScoreLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
 });

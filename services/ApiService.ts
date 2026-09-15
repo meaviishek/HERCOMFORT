@@ -43,14 +43,16 @@ interface FlushResult {
 }
 
 // ─── Config ────────────────────────────────────────────────────────────────────
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://hercomfort-jet.vercel.app';
+const BASE_URL = (
+  process.env.EXPO_PUBLIC_API_URL || 'https://hercomfort-jet.vercel.app'
+).trim().replace(/\/+$/, '');
 const OFFLINE_QUEUE_KEY = '@painreliefband:offlineQueue';
 const MAX_QUEUE_SIZE = 500;
 
 // ─── Axios instance ────────────────────────────────────────────────────────────
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 8000,
+  timeout: 25000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',

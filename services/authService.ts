@@ -41,8 +41,9 @@ export interface StoredSession {
 // EXPO_PUBLIC_API_URL is read from .env at build time.
 // On Android physical device, use your PC's LAN IP (not localhost).
 // Example: EXPO_PUBLIC_API_URL=http://192.168.1.10:3000
-export const BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL || 'https://hercomfort-jet.vercel.app';
+export const BASE_URL = (
+  process.env.EXPO_PUBLIC_API_URL || 'https://hercomfort-jet.vercel.app'
+).trim().replace(/\/+$/, '');
 
 export const STORAGE_KEYS = {
   ACCESS_TOKEN: '@nari:accessToken',
@@ -53,7 +54,7 @@ export const STORAGE_KEYS = {
 // ─── Axios instance ────────────────────────────────────────────────────────────
 export const authApi: AxiosInstance = axios.create({
   baseURL: BASE_URL,
-  timeout: 10000,
+  timeout: 25000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
