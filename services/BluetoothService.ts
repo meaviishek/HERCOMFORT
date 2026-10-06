@@ -289,7 +289,13 @@ class BluetoothService {
       throw new Error('No device connected');
     }
     try {
-      const payload = JSON.stringify(commandObj) + '\n';
+      // If _raw is set, send the raw string directly (for ESP32 string commands)
+      let payload: string;
+      if (typeof commandObj._raw === 'string') {
+        payload = commandObj._raw + '\n';
+      } else {
+        payload = JSON.stringify(commandObj) + '\n';
+      }
       console.log('[BT] Sending command:', payload.trim());
       await this._device.write(payload);
       return true;

@@ -34,23 +34,19 @@ function TabIcon({
   );
 }
 
-// ─── Center 3D Floating Action Button (Session) matching Reference Image ─────
+// ─── Center Action Button (Session) matching Screenshot ─────
 function CenterSessionButton({ focused }: { focused: boolean }) {
   return (
     <View style={styles.centerFabContainer}>
-      {/* Outer subtle shadow/glow ring */}
       <View style={styles.centerFabRing}>
-        {/* 3D Main circular button with layered bevel */}
         <View
           style={[
             styles.centerFab,
             focused ? styles.centerFabFocused : styles.centerFabNormal,
           ]}
         >
-          {/* Top gloss highlight bevel */}
-          <View style={styles.centerFabGloss} />
-          <Ionicons
-            name="flash"
+          <MaterialCommunityIcons
+            name="lightning-bolt"
             size={25}
             color="#FFFFFF"
             style={styles.centerFabIcon}
@@ -82,7 +78,7 @@ export default function TabLayout() {
         tabBarHideOnKeyboard: true,
         tabBarShowLabel: true,
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 10.5,
           fontWeight: '700',
           letterSpacing: 0.2,
           marginTop: -2,
@@ -91,15 +87,15 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: '#FFFFFF',
           borderTopWidth: 1,
-          borderTopColor: '#FCE7F3',
-          height: Platform.OS === 'ios' ? 88 : 74,
+          borderTopColor: '#F1F5F9',
+          height: Platform.OS === 'ios' ? 88 : 72,
           paddingBottom: Platform.OS === 'ios' ? 24 : 8,
           paddingTop: 4,
-          elevation: 20,
-          shadowColor: PINK_PRIMARY,
-          shadowOffset: { width: 0, height: -6 },
-          shadowOpacity: 0.12,
-          shadowRadius: 16,
+          elevation: 16,
+          shadowColor: '#0F172A',
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.06,
+          shadowRadius: 12,
         },
         tabBarActiveTintColor: PINK_PRIMARY,
         tabBarInactiveTintColor: PINK_MUTED,

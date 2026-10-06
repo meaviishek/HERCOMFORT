@@ -10,6 +10,8 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 import { AppLockProvider } from '../context/AppLockContext';
 import { useEffect, useState } from 'react';
 import { DeviceEventEmitter, View, Text, SafeAreaView } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import notificationService from '../services/notificationService';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -57,6 +59,19 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, isLoading, user?.profileComplete, segments]);
 
+  useEffect(() => {
+    notificationService.init().catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const route = response.notification?.request?.content?.data?.route;
+      if (route) {
+        router.push(route as any);
+      }
+    });
+    return () => {
+      sub.remove();
+    };
+  }, [router]);
+
   return <>{children}</>;
 }
 
@@ -103,8 +118,21 @@ export default function RootLayout() {
                 <Stack.Screen name="verify-otp" options={{ headerShown: false }} />
                 <Stack.Screen name="complete-profile" options={{ headerShown: false }} />
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="modal"       options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
+                <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
                 <Stack.Screen name="ble-device" options={{ headerShown: false }} />
+                <Stack.Screen name="personal-info" options={{ headerShown: false }} />
+                <Stack.Screen name="preferences" options={{ headerShown: false }} />
+                <Stack.Screen name="reminders" options={{ headerShown: false }} />
+                <Stack.Screen name="account-security" options={{ headerShown: false }} />
+                <Stack.Screen name="data-analytics" options={{ headerShown: false }} />
+                <Stack.Screen name="app-appearance" options={{ headerShown: false }} />
+                <Stack.Screen name="help-support" options={{ headerShown: false }} />
+                <Stack.Screen name="medication-reminder" options={{ headerShown: false }} />
+                <Stack.Screen name="disaster-alerts" options={{ headerShown: false }} />
+                <Stack.Screen name="edge-ai-vitals" options={{ headerShown: false }} />
+                <Stack.Screen name="emergency-sos" options={{ headerShown: false }} />
+                <Stack.Screen name="climate-dashboard" options={{ headerShown: false }} />
+                <Stack.Screen name="edge-privacy" options={{ headerShown: false }} />
               </Stack>
               <StatusBar style="auto" />
             </AuthGate>

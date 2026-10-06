@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { T } from "../constants/theme";
 import wellnessService, { Medication } from "../services/wellnessService";
+import notificationService from "../services/notificationService";
 
 const FREQ_OPTIONS  = ["Once daily","Twice daily","Three times","As needed","Weekly"];
 const TIME_OPTIONS  = ["6 AM","8 AM","10 AM","12 PM","2 PM","4 PM","6 PM","8 PM","10 PM"];
@@ -26,7 +27,16 @@ export default function MedicationReminder() {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    try { setMeds(await wellnessService.getMedications()); }
+    try {
+      const data = await wellnessService.getMedications();
+      setMeds(data);
+      // Sync notifications for active medications
+      data.forEach(m => {
+        if (m.active) {
+          notificationService.scheduleMedicationReminder(m._id, m.name, `${m.dose} ${m.unit}`, m.time, true);
+        }
+      });
+    }
     catch (e) { console.warn("meds load", e); }
     finally { setLoading(false); }
   }
@@ -37,8 +47,9 @@ export default function MedicationReminder() {
     try {
       const med = await wellnessService.addMedication({ name: name.trim(), dose, unit, time, frequency: freq, notes, active: true });
       setMeds(prev => [med, ...prev]);
+      await notificationService.scheduleMedicationReminder(med._id, med.name, `${med.dose} ${med.unit}`, med.time, true);
       resetForm(); setModal(false);
-      Alert.alert("Added!", `${med.name} added to your medications.`);
+      Alert.alert("Added!", `${med.name} added and reminder scheduled for ${med.time}.`);
     } catch (e: any) { Alert.alert("Error", e?.response?.data?.message || "Could not save."); }
     finally { setSaving(false); }
   }
@@ -47,6 +58,13 @@ export default function MedicationReminder() {
     try {
       const updated = await wellnessService.updateMedication(id, { active: !current });
       setMeds(prev => prev.map(m => m._id === id ? updated : m));
+      await notificationService.scheduleMedicationReminder(
+        id,
+        updated.name,
+        `${updated.dose} ${updated.unit}`,
+        updated.time,
+        updated.active
+      );
     } catch { Alert.alert("Error", "Could not update."); }
   }
 
@@ -54,7 +72,11 @@ export default function MedicationReminder() {
     Alert.alert("Delete?", `Remove ${name}?`, [
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => {
-        try { await wellnessService.deleteMedication(id); setMeds(prev => prev.filter(m => m._id !== id)); }
+        try {
+          await wellnessService.deleteMedication(id);
+          await notificationService.cancelById(`med_${id}`);
+          setMeds(prev => prev.filter(m => m._id !== id));
+        }
         catch { Alert.alert("Error", "Could not delete."); }
       }},
     ]);

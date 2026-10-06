@@ -328,10 +328,39 @@ class BleService {
       const decoded = decodeBase64(base64Val);
       if (!decoded) return;
 
-      const parsed = JSON.parse(decoded);
+      // Extract JSON substring cleanly even if trailing text exists
+      let jsonStr = decoded.trim();
+      const firstBrace = jsonStr.indexOf('{');
+      const lastBrace = jsonStr.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
+      }
+
+      const parsed = JSON.parse(jsonStr);
       const temp = parsed.temp ?? parsed.temperature ?? 36.5;
 
+      const emgVal = parsed.emg != null ? parseFloat(parsed.emg) : undefined;
+      const emgEnv = parsed.emgEnvelope != null
+        ? parseFloat(parsed.emgEnvelope)
+        : parsed.emg_envelope != null
+        ? parseFloat(parsed.emg_envelope)
+        : undefined;
+
+      // Heater string "ON"/"OFF" → boolean
+      let heaterBool: boolean;
+      if (typeof parsed.heater === 'string') {
+        heaterBool = parsed.heater.toUpperCase() === 'ON';
+      } else {
+        heaterBool = Boolean(parsed.heater);
+      }
+
+      // motorMode "OFF" means motor is off
+      const motorBool = typeof parsed.motorMode === 'string'
+        ? parsed.motorMode.toUpperCase() !== 'OFF'
+        : Boolean(parsed.motor);
+
       const reading: SensorReading = {
+        ...parsed,
         deviceId: this._connectedDevice?.id || 'HER-COMFORT-ESP32',
         temp: typeof temp === 'number' ? temp : parseFloat(temp) || 36.5,
         temperature: typeof temp === 'number' ? temp : parseFloat(temp) || 36.5,
@@ -339,11 +368,19 @@ class BleService {
         gx: parsed.gx != null ? parseFloat(parsed.gx) : 0,
         gy: parsed.gy != null ? parseFloat(parsed.gy) : 0,
         gz: parsed.gz != null ? parseFloat(parsed.gz) : 0,
-        motor: Boolean(parsed.motor),
-        heater: Boolean(parsed.heater),
+        motor: motorBool,
+        heater: heaterBool,
         system_active: true,
         beat_detected: true,
-        raw_analog: parsed.raw_analog ?? 1720,
+        raw_analog: parsed.raw_analog != null ? parseFloat(parsed.raw_analog) : (emgVal != null ? emgVal : 1720),
+        emg: emgVal,
+        emgEnvelope: emgEnv,
+        // New Her Comfort ESP32 C6 fields
+        position: parsed.position ?? 'UNKNOWN',
+        bodyAngle: parsed.bodyAngle != null ? parseFloat(parsed.bodyAngle) : undefined,
+        motorMode: parsed.motorMode ?? (motorBool ? 'CONTINUOUS' : 'OFF'),
+        motorSpeed: parsed.motorSpeed != null ? parseInt(parsed.motorSpeed, 10) : undefined,
+        heaterSetpoint: parsed.heaterSetpoint != null ? parseFloat(parsed.heaterSetpoint) : undefined,
         timestamp: Date.now(),
       };
 
@@ -374,12 +411,51 @@ class BleService {
     this._connectedDevice = null;
   }
 
+
   isConnected(): boolean {
     return this._connectedDevice !== null;
   }
 
   getConnectedDevice(): Device | null {
     return this._connectedDevice;
+  }
+
+  // ─── Write raw string command to BLE characteristic ───────────────────────
+  async writeRawCommand(rawCmd: string): Promise<void> {
+    const mgr = this.getManager();
+    if (!mgr || !this._connectedDevice) {
+      throw new Error('[BLE] Not connected');
+    }
+    console.log('[BLE] Writing raw command:', rawCmd);
+
+    // Encode UTF-8 string to base64 for BLE write
+    const str = rawCmd + '\n';
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    let encoded = '';
+    for (let i = 0; i < str.length; i += 3) {
+      const c1 = str.charCodeAt(i);
+      const c2 = i + 1 < str.length ? str.charCodeAt(i + 1) : 0;
+      const c3 = i + 2 < str.length ? str.charCodeAt(i + 2) : 0;
+      encoded += chars[c1 >> 2];
+      encoded += chars[((c1 & 3) << 4) | (c2 >> 4)];
+      encoded += i + 1 < str.length ? chars[((c2 & 15) << 2) | (c3 >> 6)] : '=';
+      encoded += i + 2 < str.length ? chars[c3 & 63] : '=';
+    }
+
+    try {
+      await this._connectedDevice.writeCharacteristicWithResponseForService(
+        BLE_SERVICE_UUID, BLE_CHAR_UUID, encoded
+      );
+    } catch {
+      try {
+        await this._connectedDevice.writeCharacteristicWithoutResponseForService(
+          BLE_SERVICE_UUID, BLE_CHAR_UUID, encoded
+        );
+      } catch (err) {
+        console.warn('[BLE] writeRawCommand failed:', err);
+        throw err;
+      }
+    }
   }
 }
 

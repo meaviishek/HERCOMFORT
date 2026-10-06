@@ -99,18 +99,44 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
       (data) => {
         const raw = data as Record<string, any>;
         const tempVal = raw.temp ?? raw.temperature ?? 36.5;
+        const emgVal = raw.emg != null ? parseFloat(raw.emg) : undefined;
+        const emgEnv = raw.emgEnvelope != null
+          ? parseFloat(raw.emgEnvelope)
+          : raw.emg_envelope != null
+          ? parseFloat(raw.emg_envelope)
+          : undefined;
+
+        // Heater: firmware sends "ON"/"OFF" string
+        let heaterBool: boolean;
+        if (typeof raw.heater === 'string') {
+          heaterBool = raw.heater.toUpperCase() === 'ON';
+        } else {
+          heaterBool = Boolean(raw.heater);
+        }
+
+        const motorBool = typeof raw.motorMode === 'string'
+          ? raw.motorMode.toUpperCase() !== 'OFF'
+          : Boolean(raw.motor);
+
         const normalized: SensorReading = {
           ...raw,
           deviceId: raw.deviceId || 'HER-COMFORT',
           temp: typeof tempVal === 'number' ? tempVal : parseFloat(tempVal) || 36.5,
           temperature: typeof tempVal === 'number' ? tempVal : parseFloat(tempVal) || 36.5,
           bpm: raw.bpm ?? 72,
-          gx: raw.gx ?? 0,
-          gy: raw.gy ?? 0,
-          gz: raw.gz ?? 0,
-          motor: Boolean(raw.motor),
-          heater: Boolean(raw.heater),
-          raw_analog: raw.raw_analog ?? 1700,
+          gx: raw.gx != null ? parseFloat(raw.gx) : 0,
+          gy: raw.gy != null ? parseFloat(raw.gy) : 0,
+          gz: raw.gz != null ? parseFloat(raw.gz) : 0,
+          motor: motorBool,
+          heater: heaterBool,
+          raw_analog: raw.raw_analog != null ? parseFloat(raw.raw_analog) : (emgVal != null ? emgVal : 1700),
+          emg: emgVal,
+          emgEnvelope: emgEnv,
+          position: raw.position ?? 'UNKNOWN',
+          bodyAngle: raw.bodyAngle != null ? parseFloat(raw.bodyAngle) : undefined,
+          motorMode: raw.motorMode ?? (motorBool ? 'CONTINUOUS' : 'OFF'),
+          motorSpeed: raw.motorSpeed != null ? parseInt(raw.motorSpeed, 10) : undefined,
+          heaterSetpoint: raw.heaterSetpoint != null ? parseFloat(raw.heaterSetpoint) : undefined,
           timestamp: raw.timestamp ?? Date.now(),
         };
         setLiveData(normalized);
@@ -288,6 +314,29 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
       const gy = Math.cos(t * 0.25) * 1.4 + (Math.random() - 0.5) * 0.15;
       const gz = Math.sin(t * 0.1) * 0.5 + (Math.random() - 0.5) * 0.1;
 
+      const emgWave = Math.round(Math.sin(t * 1.5) * 18 + (Math.random() - 0.5) * 8);
+      const emgEnv = Math.round(12 + Math.abs(Math.sin(t * 0.2)) * 16);
+
+      // Cycle positions every 30 ticks (~12 seconds)
+      const positionCycle = Math.floor(t / 30) % 3;
+      const positions: Array<'UPRIGHT' | 'WALKING' | 'LYING'> = ['UPRIGHT', 'WALKING', 'LYING'];
+      const position = positions[positionCycle];
+
+      // Body angle: upright ~0-5°, walking ~10-25°, lying ~75-85°
+      const bodyAngle = position === 'UPRIGHT'
+        ? 2 + Math.random() * 3
+        : position === 'WALKING'
+        ? 15 + Math.sin(t * 0.5) * 10
+        : 78 + Math.random() * 5;
+
+      // Cycle motor modes every 20 ticks
+      const modeCycle = Math.floor(t / 20) % 4;
+      const motorModes: Array<'OFF' | 'CONTINUOUS' | 'PULSE' | 'HARMONIC'> = ['CONTINUOUS', 'PULSE', 'HARMONIC', 'OFF'];
+      const motorMode = motorModes[modeCycle];
+      const motorSpeed = motorMode !== 'OFF' ? 70 + Math.round(Math.sin(t * 0.1) * 15) : 0;
+
+      const heaterSetpoint = 40.0;
+
       const reading: SensorReading = {
         deviceId: 'HER-COMFORT-ESP32',
         temp: parseFloat(temp.toFixed(2)),
@@ -296,12 +345,19 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
         gx: parseFloat(gx.toFixed(2)),
         gy: parseFloat(gy.toFixed(2)),
         gz: parseFloat(gz.toFixed(2)),
-        motor: t % 20 < 10,
+        motor: motorMode !== 'OFF',
         heater: true,
         led: true,
         system_active: true,
         beat_detected: true,
-        raw_analog: 1720 + Math.round(Math.sin(t * 0.3) * 60),
+        raw_analog: emgWave,
+        emg: emgEnv,
+        emgEnvelope: emgEnv,
+        position,
+        bodyAngle: parseFloat(bodyAngle.toFixed(1)),
+        motorMode,
+        motorSpeed,
+        heaterSetpoint,
         timestamp: Date.now(),
       };
 
@@ -356,6 +412,17 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
         setLiveData((prev) => prev ? ({ ...prev, ...commandObj } as SensorReading) : null);
         setLastCommand({ ...commandObj, sentAt: Date.now() });
         showToast('success', 'Command applied');
+        return;
+      }
+      // Raw string command (e.g. "MOTOR:ON", "SPEED:70") — send directly
+      if (typeof commandObj._raw === 'string') {
+        const rawCmd = commandObj._raw as string;
+        if (BleService.isConnected()) {
+          await BleService.writeRawCommand(rawCmd);
+        } else {
+          await BluetoothService.sendCommand(commandObj);
+        }
+        setLastCommand({ ...commandObj, sentAt: Date.now() });
         return;
       }
       await BluetoothService.sendCommand(commandObj);

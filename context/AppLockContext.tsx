@@ -49,6 +49,7 @@ try {
 // ─── Constants ───────────────────────────────────────────────────────────────
 const SCREEN_LOCK_KEY = '@nari:screenLock';
 const LOCK_PIN_KEY = '@nari:lockPin';
+const FIRST_TIME_PIN_PROMPTED_KEY = '@nari:firstTimePinPrompted';
 const DEFAULT_PIN = '1234';
 const LOCK_GRACE_MS = 15_000;
 
@@ -57,8 +58,12 @@ interface AppLockContextValue {
   screenLockEnabled: boolean;
   isLocked: boolean;
   hasBiometrics: boolean;
+  hasCustomPin: boolean;
+  storedPin: string;
   toggleScreenLock: () => Promise<void>;
   unlockNow: () => Promise<void>;
+  setPinCode: (pin: string, enableLock?: boolean) => Promise<boolean>;
+  promptPinSetup: () => void;
 }
 
 const AppLockContext = createContext<AppLockContextValue | null>(null);
@@ -237,17 +242,34 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
 
   const [screenLockEnabled, setScreenLockEnabled] = useState(false);
   const [storedPin, setStoredPin] = useState(DEFAULT_PIN);
+  const [hasCustomPin, setHasCustomPin] = useState(false);
   const [hasBiometrics, setHasBiometrics] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
   // PIN Setup Modal
   const [showPinSetup, setShowPinSetup] = useState(false);
+  const [showFirstTimePinPrompt, setShowFirstTimePinPrompt] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
 
   const backgroundedAt = useRef<number | null>(null);
   const appState = useRef<AppStateStatus>(AppState.currentState);
+  const hasUnlockedThisSession = useRef(false);
+
+  // First-time prompt for user after login / signup
+  useEffect(() => {
+    if (isReady && isAuthenticated && !hasCustomPin) {
+      AsyncStorage.getItem(FIRST_TIME_PIN_PROMPTED_KEY).then((val) => {
+        if (!val) {
+          const t = setTimeout(() => {
+            setShowFirstTimePinPrompt(true);
+          }, 1500);
+          return () => clearTimeout(t);
+        }
+      });
+    }
+  }, [isReady, isAuthenticated, hasCustomPin]);
 
   // Load preferences
   useEffect(() => {
@@ -257,11 +279,20 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(SCREEN_LOCK_KEY),
           AsyncStorage.getItem(LOCK_PIN_KEY),
         ]);
-        setScreenLockEnabled(lockVal === 'true');
-        if (pinVal) setStoredPin(pinVal);
+        const lockOn = lockVal === 'true';
+        setScreenLockEnabled(lockOn);
+        if (pinVal) {
+          setStoredPin(pinVal);
+          setHasCustomPin(true);
+        }
 
         const bio = await checkBiometrics();
         setHasBiometrics(bio);
+
+        // Cold Start: Lock app immediately if screen lock is enabled and session is authenticated
+        if (lockOn && isAuthenticated && !hasUnlockedThisSession.current) {
+          setIsLocked(true);
+        }
       } catch {
         // Safe fallback
       } finally {
@@ -269,12 +300,18 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
       }
     }
     void init();
-  }, []);
+  }, [isAuthenticated]);
+
+  // Lock on cold start once authentication state settles
+  useEffect(() => {
+    if (isReady && screenLockEnabled && isAuthenticated && !hasUnlockedThisSession.current) {
+      setIsLocked(true);
+    }
+  }, [isReady, screenLockEnabled, isAuthenticated]);
 
   // AppState listener for background/foreground lock
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
-      const prevState = appState.current;
       appState.current = nextState;
 
       if (nextState === 'background' || nextState === 'inactive') {
@@ -298,8 +335,31 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isAuthenticated) {
       setIsLocked(false);
+      hasUnlockedThisSession.current = false;
     }
   }, [isAuthenticated]);
+
+  // Set PIN programmatically
+  const setPinCode = useCallback(
+    async (pin: string, enableLock: boolean = true): Promise<boolean> => {
+      if (pin.length !== 4) return false;
+      setStoredPin(pin);
+      setHasCustomPin(true);
+      await AsyncStorage.setItem(LOCK_PIN_KEY, pin);
+      if (enableLock) {
+        setScreenLockEnabled(true);
+        await AsyncStorage.setItem(SCREEN_LOCK_KEY, 'true');
+      }
+      return true;
+    },
+    []
+  );
+
+  const promptPinSetup = useCallback(() => {
+    setNewPin('');
+    setConfirmPin('');
+    setShowPinSetup(true);
+  }, []);
 
   // Toggle Screen Lock
   const toggleScreenLock = useCallback(async () => {
@@ -334,10 +394,8 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Biometrics unavailable or not enrolled -> offer 4-digit PIN setup
-    setNewPin('');
-    setConfirmPin('');
-    setShowPinSetup(true);
-  }, [screenLockEnabled]);
+    promptPinSetup();
+  }, [screenLockEnabled, promptPinSetup]);
 
   const handleSavePin = async () => {
     if (newPin.length !== 4) {
@@ -350,6 +408,7 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     }
 
     setStoredPin(newPin);
+    setHasCustomPin(true);
     setScreenLockEnabled(true);
     await AsyncStorage.setItem(LOCK_PIN_KEY, newPin);
     await AsyncStorage.setItem(SCREEN_LOCK_KEY, 'true');
@@ -357,13 +416,28 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     Alert.alert('Screen Lock Enabled', 'Your 4-digit PIN has been set successfully.');
   };
 
-  const unlockNow = useCallback(async () => {
+  const handleUnlock = useCallback(() => {
+    hasUnlockedThisSession.current = true;
     setIsLocked(false);
   }, []);
 
+  const unlockNow = useCallback(async () => {
+    handleUnlock();
+  }, [handleUnlock]);
+
   return (
     <AppLockContext.Provider
-      value={{ screenLockEnabled, isLocked, hasBiometrics, toggleScreenLock, unlockNow }}
+      value={{
+        screenLockEnabled,
+        isLocked,
+        hasBiometrics,
+        hasCustomPin,
+        storedPin,
+        toggleScreenLock,
+        unlockNow,
+        setPinCode,
+        promptPinSetup,
+      }}
     >
       {children}
 
@@ -373,7 +447,7 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
           <LockScreen
             storedPin={storedPin}
             hasBiometrics={hasBiometrics}
-            onUnlock={() => setIsLocked(false)}
+            onUnlock={handleUnlock}
           />
         </View>
       )}
@@ -420,6 +494,44 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveBtn} onPress={handleSavePin}>
                 <Text style={styles.saveBtnText}>Enable Lock</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* First-Time PIN Setup Suggestion Modal */}
+      <Modal visible={showFirstTimePinPrompt} transparent animationType="fade">
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard}>
+            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: '#FFF0F5', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 12 }}>
+              <Ionicons name="lock-closed" size={24} color="#E84EA1" />
+            </View>
+            <Text style={[styles.modalTitle, { textAlign: 'center' }]}>Set Up Quick Login PIN</Text>
+            <Text style={[styles.modalSub, { textAlign: 'center', lineHeight: 18, marginTop: 4 }]}>
+              Secure your health records and unlock Her Comfort with a 4-digit PIN or fingerprint without typing your email and password each time.
+            </Text>
+
+            <View style={{ gap: 10, marginTop: 16 }}>
+              <TouchableOpacity
+                style={[styles.saveBtn, { width: '100%', alignItems: 'center' }]}
+                onPress={() => {
+                  setShowFirstTimePinPrompt(false);
+                  AsyncStorage.setItem(FIRST_TIME_PIN_PROMPTED_KEY, 'true');
+                  promptPinSetup();
+                }}
+              >
+                <Text style={styles.saveBtnText}>Set 4-Digit PIN</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.cancelBtn, { width: '100%', alignItems: 'center' }]}
+                onPress={() => {
+                  setShowFirstTimePinPrompt(false);
+                  AsyncStorage.setItem(FIRST_TIME_PIN_PROMPTED_KEY, 'true');
+                }}
+              >
+                <Text style={styles.cancelBtnText}>Maybe Later</Text>
               </TouchableOpacity>
             </View>
           </View>

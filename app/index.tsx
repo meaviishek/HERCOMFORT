@@ -52,22 +52,32 @@ export default function OnboardingScreen() {
 
         const checkFlow = async () => {
             try {
-                const hasOnboarded = await AsyncStorage.getItem(ONBOARDING_COMPLETED_KEY);
+                // Give 0.8s for smooth brand presence
+                await new Promise((res) => setTimeout(res, 800));
 
-                // Give 1.2s for clean brand presence
-                await new Promise((res) => setTimeout(res, 1200));
+                // 1. If user is authenticated, go straight into the app!
+                if (isAuthenticated) {
+                    if (user && user.profileComplete === false) {
+                        router.replace('/complete-profile' as any);
+                    } else {
+                        router.replace('/(tabs)');
+                    }
+                    return;
+                }
+
+                // 2. Also verify stored session directly
+                const [storedToken, hasOnboarded] = await Promise.all([
+                    AsyncStorage.getItem('@nari:accessToken'),
+                    AsyncStorage.getItem(ONBOARDING_COMPLETED_KEY),
+                ]);
+
+                if (storedToken) {
+                    router.replace('/(tabs)');
+                    return;
+                }
 
                 if (hasOnboarded === 'true') {
-                    // Existing user -> Bypass onboarding completely!
-                    if (isAuthenticated) {
-                        if (user && user.profileComplete === false) {
-                            router.replace('/complete-profile' as any);
-                        } else {
-                            router.replace('/(tabs)');
-                        }
-                    } else {
-                        router.replace('/login');
-                    }
+                    router.replace('/login');
                     return;
                 }
             } catch (err) {

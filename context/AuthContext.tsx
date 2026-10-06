@@ -28,6 +28,7 @@ import authService, {
   clearTokens,
   type AuthUser,
 } from '../services/authService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface AuthContextValue {
@@ -71,15 +72,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isRefreshingRef = useRef(false);
 
   // ── Apply tokens to state & ref + persist to AsyncStorage ────────────────
-  function _applyTokens(token: string, userData: AuthUser): void {
+  function _applyTokens(token: string, userData: AuthUser, refreshToken?: string): void {
     tokenRef.current = token;
     setAccessToken(token);
     setUser(userData);
     // Persist so the session survives full app restarts
-    void saveTokens({ accessToken: token, user: userData });
+    void saveTokens({ accessToken: token, refreshToken, user: userData });
+    void AsyncStorage.setItem('@nari_onboarding_completed_v1', 'true');
   }
 
-  // ── Logout helper (clears everything) ─────────────────────────────────────
+  // ── Logout helper (clears everything only on explicit user action) ─────────
   const _logout = useCallback(async (): Promise<void> => {
     try {
       if (tokenRef.current) {
@@ -107,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    // Response: refresh token on 401 and retry once
+    // Response: refresh token on 401 and retry once without wiping local session
     const resId = authApi.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
@@ -121,8 +123,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAccessToken(newToken);
             originalReq.headers.Authorization = `Bearer ${newToken}`;
             return authApi(originalReq);
-          } catch {
-            await _logout();
+          } catch (refreshErr) {
+            // Keep local user session saved; do NOT auto-logout on transient network or refresh failures
+            console.warn('[AuthContext] Token refresh failed; preserving local session:', refreshErr);
           } finally {
             isRefreshingRef.current = false;
           }
@@ -159,13 +162,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── Public actions ─────────────────────────────────────────────────────────
   const login = useCallback(async (email: string, password: string): Promise<void> => {
     const data = await authService.login({ email, password });
-    _applyTokens(data.accessToken, data.user);
+    _applyTokens(data.accessToken, data.user, data.refreshToken);
   }, []);
 
   const register = useCallback(
     async (name: string, email: string, password: string): Promise<void> => {
       const data = await authService.register({ name, email, password });
-      _applyTokens(data.accessToken, data.user);
+      _applyTokens(data.accessToken, data.user, data.refreshToken);
     },
     []
   );
@@ -184,13 +187,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const verifyOtp = useCallback(
     async (email: string, otp: string): Promise<AuthUser> => {
       const data = await authService.verifyOtp({ email, otp });
-      _applyTokens(data.accessToken, data.user);
+      _applyTokens(data.accessToken, data.user, data.refreshToken);
       return data.user;
     },
     []
   );
 
-  const completeProfile = useCallback(
+    const completeProfile = useCallback(
     async (profileData: {
       dateOfBirth?: string;
       age?: number;
@@ -200,12 +203,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }): Promise<void> => {
       const data = await authService.completeProfile(profileData);
       setUser(data.user);
+      if (tokenRef.current) {
+        void saveTokens({ accessToken: tokenRef.current, user: data.user });
+      }
     },
     []
   );
 
   const updateUser = useCallback((updatedUser: AuthUser): void => {
     setUser(updatedUser);
+    if (tokenRef.current) {
+      void saveTokens({ accessToken: tokenRef.current, user: updatedUser });
+    }
   }, []);
 
   return (

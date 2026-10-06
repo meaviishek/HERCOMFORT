@@ -28,6 +28,7 @@ export interface AuthUser {
 
 export interface AuthTokens {
   accessToken: string;
+  refreshToken?: string;
   user: AuthUser;
 }
 
@@ -105,24 +106,42 @@ export async function register(payload: {
   email: string;
   password: string;
 }): Promise<AuthTokens> {
-  const { data } = await authApi.post<AuthTokens>('/api/auth/register', payload);
-  await saveTokens(data);
-  return data;
+  const response = await authApi.post<any>('/api/auth/register', payload);
+  const data = response.data?.data || response.data;
+  const result: AuthTokens = {
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    user: data.user,
+  };
+  await saveTokens(result);
+  return result;
 }
 
 export async function login(payload: {
   email: string;
   password: string;
 }): Promise<AuthTokens> {
-  const { data } = await authApi.post<AuthTokens>('/api/auth/login', payload);
-  await saveTokens(data);
-  return data;
+  const response = await authApi.post<any>('/api/auth/login', payload);
+  const data = response.data?.data || response.data;
+  const result: AuthTokens = {
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    user: data.user,
+  };
+  await saveTokens(result);
+  return result;
 }
 
 export async function googleLogin(idToken: string): Promise<AuthTokens> {
-  const { data } = await authApi.post<AuthTokens>('/api/auth/google/mobile', { idToken });
-  await saveTokens(data);
-  return data;
+  const response = await authApi.post<any>('/api/auth/google/mobile', { idToken });
+  const data = response.data?.data || response.data;
+  const result: AuthTokens = {
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    user: data.user,
+  };
+  await saveTokens(result);
+  return result;
 }
 
 // ─── OTP Registration ──────────────────────────────────────────────────────────
@@ -162,12 +181,18 @@ export async function verifyOtp(payload: {
   email: string;
   otp: string;
 }): Promise<AuthTokens> {
-  const { data } = await authApi.post<AuthTokens>(
+  const response = await authApi.post<any>(
     '/api/auth/register/verify-otp',
     payload
   );
-  await saveTokens(data);
-  return data;
+  const data = response.data?.data || response.data;
+  const result: AuthTokens = {
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    user: data.user,
+  };
+  await saveTokens(result);
+  return result;
 }
 
 // ─── Profile Completion ────────────────────────────────────────────────────────
@@ -187,12 +212,16 @@ export async function completeProfile(payload: {
     '/api/auth/complete-profile',
     payload
   );
-  // Update stored user with completed profile
+  // Update stored user with completed profile while preserving tokens
   const stored = await getStoredTokens();
   if (stored.accessToken) {
-    await saveTokens({ accessToken: stored.accessToken, user: data.user });
+    await saveTokens({
+      accessToken: stored.accessToken,
+      refreshToken: stored.refreshToken ?? undefined,
+      user: data.user,
+    });
   }
-  return { accessToken: stored.accessToken!, user: data.user };
+  return { accessToken: stored.accessToken!, refreshToken: stored.refreshToken ?? undefined, user: data.user };
 }
 
 // ─── Token / Session ──────────────────────────────────────────────────────────
@@ -201,9 +230,15 @@ export async function refreshAccessToken(): Promise<AuthTokens> {
   const { refreshToken } = await getStoredTokens();
   if (!refreshToken) throw new Error('No refresh token stored.');
 
-  const { data } = await authApi.post<AuthTokens>('/api/auth/refresh', { refreshToken });
-  await saveTokens(data);
-  return data;
+  const response = await authApi.post<any>('/api/auth/refresh', { refreshToken });
+  const data = response.data?.data || response.data;
+  const result: AuthTokens = {
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken || refreshToken,
+    user: data.user,
+  };
+  await saveTokens(result);
+  return result;
 }
 
 export async function logout(accessToken: string): Promise<void> {

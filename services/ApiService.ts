@@ -24,12 +24,20 @@ export interface SensorReading {
   heater?: boolean;
   led?: boolean;
   raw_analog?: number;
+  emg?: number;
+  emgEnvelope?: number;
   system_active?: boolean;
   beat_detected?: boolean;
   autoMode?: boolean;
   active?: boolean;
   sensorError?: boolean;
   timestamp?: number;
+  // New Her Comfort ESP32 C6 firmware fields
+  position?: 'UPRIGHT' | 'LYING' | 'WALKING' | 'UNKNOWN';
+  bodyAngle?: number;
+  motorMode?: 'OFF' | 'CONTINUOUS' | 'PULSE' | 'HARMONIC';
+  motorSpeed?: number;
+  heaterSetpoint?: number;
   [key: string]: any;
 }
 
@@ -57,6 +65,16 @@ const api = axios.create({
     'Content-Type': 'application/json',
     Accept: 'application/json',
   },
+});
+
+api.interceptors.request.use(async (config) => {
+  try {
+    const token = await AsyncStorage.getItem('@nari:accessToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  } catch {}
+  return config;
 });
 
 // ─── Offline Queue Helpers ─────────────────────────────────────────────────────

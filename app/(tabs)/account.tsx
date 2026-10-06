@@ -129,27 +129,10 @@ export default function AccountScreen() {
       </View>
 
       <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
-        {/* Upgrade Banner */}
-        <TouchableOpacity className="rounded-2xl p-4 flex-row items-center mt-4 shadow-sm" style={{ backgroundColor: T.pink.primary }}>
-          <View className="w-12 h-12 bg-white/20 rounded-full items-center justify-center mr-4">
-            <View className="w-10 h-10 bg-white rounded-full items-center justify-center">
-              <Ionicons name={'crown' as any} size={20} color="#fbbf24" />
-            </View>
-          </View>
-          <View className="flex-1">
-            <Text className="text-white text-lg font-bold">
-              Upgrade Plan Now!
-            </Text>
-            <Text className="text-white/80 text-xs mt-1">
-              Enjoy all the benefits and explore more possibilities
-            </Text>
-          </View>
-        </TouchableOpacity>
-
         {/* Profile Card with Real User Data */}
         <TouchableOpacity
           onPress={() => router.push('/personal-info' as any)}
-          className="bg-white rounded-2xl p-4 mt-6 shadow-sm border border-gray-100 active:opacity-90"
+          className="bg-white rounded-2xl p-4 mt-4 shadow-sm border border-gray-100 active:opacity-90"
         >
           <View className="flex-row items-center">
             {user?.avatar ? (
@@ -211,8 +194,146 @@ export default function AccountScreen() {
           )}
         </TouchableOpacity>
 
+        {/* ── Personal AI Health Companion & Disaster Shield (Edge AI) ── */}
+        <View className="mt-5">
+          <View className="flex-row items-center justify-between px-1 mb-2">
+            <View className="flex-row items-center">
+              <View className="w-2 h-2 rounded-full bg-pink-500 mr-2" />
+              <Text className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                Edge AI Health & Disaster Shield
+              </Text>
+            </View>
+            <View className="bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              <Text className="text-[10px] font-bold text-emerald-700">100% On-Device AI</Text>
+            </View>
+          </View>
+
+          {/* Feature Hub Card */}
+          <View className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-2">
+            {/* 1. Disaster Health Alerts */}
+            <TouchableOpacity
+              onPress={() => router.push('/disaster-alerts' as any)}
+              className="flex-row items-center justify-between py-3 border-b border-gray-100 active:opacity-70"
+            >
+              <View className="flex-row items-center flex-1 pr-2">
+                <View className="w-10 h-10 rounded-xl bg-amber-50 items-center justify-center mr-3 border border-amber-100">
+                  <MaterialCommunityIcons name="weather-lightning-rainy" size={20} color="#d97706" />
+                </View>
+                <View className="flex-1">
+                  <View className="flex-row items-center">
+                    <Text className="text-base font-semibold text-gray-800">Disaster Health Alerts</Text>
+                    <View className="bg-amber-100 px-2 py-0.5 rounded-full ml-2">
+                      <Text className="text-[10px] font-bold text-amber-700">India Shield</Text>
+                    </View>
+                  </View>
+                  <Text className="text-xs text-gray-400 mt-0.5">
+                    Heatwaves, severe AQI smog, flood & cyclone early warnings
+                  </Text>
+                </View>
+              </View>
+              <Feather name="chevron-right" size={18} color="#9ca3af" />
+            </TouchableOpacity>
+
+            {/* 2. Edge AI Vitals & Anomaly Monitor */}
+            <TouchableOpacity
+              onPress={() => router.push('/edge-ai-vitals' as any)}
+              className="flex-row items-center justify-between py-3 border-b border-gray-100 active:opacity-70"
+            >
+              <View className="flex-row items-center flex-1 pr-2">
+                <View className="w-10 h-10 rounded-xl bg-rose-50 items-center justify-center mr-3 border border-rose-100">
+                  <Ionicons name="pulse" size={20} color="#e11d48" />
+                </View>
+                <View className="flex-1">
+                  <View className="flex-row items-center">
+                    <Text className="text-base font-semibold text-gray-800">Edge AI Anomaly Monitor</Text>
+                    <View className="bg-rose-100 px-2 py-0.5 rounded-full ml-2">
+                      <Text className="text-[10px] font-bold text-rose-700">Real-time</Text>
+                    </View>
+                  </View>
+                  <Text className="text-xs text-gray-400 mt-0.5">
+                    HR, SpO2, core temp, heat stress & dehydration inference
+                  </Text>
+                </View>
+              </View>
+              <Feather name="chevron-right" size={18} color="#9ca3af" />
+            </TouchableOpacity>
+
+            {/* 3. Emergency SOS & Fall Guardian */}
+            <TouchableOpacity
+              onPress={() => router.push('/emergency-sos' as any)}
+              className="flex-row items-center justify-between py-3 border-b border-gray-100 active:opacity-70"
+            >
+              <View className="flex-row items-center flex-1 pr-2">
+                <View className="w-10 h-10 rounded-xl bg-red-50 items-center justify-center mr-3 border border-red-100">
+                  <MaterialCommunityIcons name="alert-octagon" size={20} color="#dc2626" />
+                </View>
+                <View className="flex-1">
+                  <View className="flex-row items-center">
+                    <Text className="text-base font-semibold text-gray-800">Emergency SOS & Fall Guardian</Text>
+                    <View className="bg-red-100 px-2 py-0.5 rounded-full ml-2">
+                      <Text className="text-[10px] font-bold text-red-700">112 SOS</Text>
+                    </View>
+                  </View>
+                  <Text className="text-xs text-gray-400 mt-0.5">
+                    Kinematic fall impact sensor, acoustic siren & GPS dispatch
+                  </Text>
+                </View>
+              </View>
+              <Feather name="chevron-right" size={18} color="#9ca3af" />
+            </TouchableOpacity>
+
+            {/* 4. Climate Resilience & Wellness Dashboard */}
+            <TouchableOpacity
+              onPress={() => router.push('/climate-dashboard' as any)}
+              className="flex-row items-center justify-between py-3 border-b border-gray-100 active:opacity-70"
+            >
+              <View className="flex-row items-center flex-1 pr-2">
+                <View className="w-10 h-10 rounded-xl bg-indigo-50 items-center justify-center mr-3 border border-indigo-100">
+                  <MaterialCommunityIcons name="chart-bell-curve-cumulative" size={20} color="#4f46e5" />
+                </View>
+                <View className="flex-1">
+                  <View className="flex-row items-center">
+                    <Text className="text-base font-semibold text-gray-800">Climate Resilience Dashboard</Text>
+                    <View className="bg-indigo-100 px-2 py-0.5 rounded-full ml-2">
+                      <Text className="text-[10px] font-bold text-indigo-700">Daily Score</Text>
+                    </View>
+                  </View>
+                  <Text className="text-xs text-gray-400 mt-0.5">
+                    Heat/Respiratory/Cardio risk scores & climate hydration target
+                  </Text>
+                </View>
+              </View>
+              <Feather name="chevron-right" size={18} color="#9ca3af" />
+            </TouchableOpacity>
+
+            {/* 5. Privacy & Edge AI Vault */}
+            <TouchableOpacity
+              onPress={() => router.push('/edge-privacy' as any)}
+              className="flex-row items-center justify-between py-3 active:opacity-70"
+            >
+              <View className="flex-row items-center flex-1 pr-2">
+                <View className="w-10 h-10 rounded-xl bg-emerald-50 items-center justify-center mr-3 border border-emerald-100">
+                  <MaterialCommunityIcons name="shield-check" size={20} color="#059669" />
+                </View>
+                <View className="flex-1">
+                  <View className="flex-row items-center">
+                    <Text className="text-base font-semibold text-gray-800">Edge Privacy & Data Vault</Text>
+                    <View className="bg-emerald-100 px-2 py-0.5 rounded-full ml-2">
+                      <Text className="text-[10px] font-bold text-emerald-700">Zero Cloud</Text>
+                    </View>
+                  </View>
+                  <Text className="text-xs text-gray-400 mt-0.5">
+                    100% on-device data sovereignty, encrypted export & local wipe
+                  </Text>
+                </View>
+              </View>
+              <Feather name="chevron-right" size={18} color="#9ca3af" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Menu Options Group */}
-        <View className="bg-white rounded-2xl px-4 py-2 mt-6 shadow-sm border border-gray-100 flex-col mb-28">
+        <View className="bg-white rounded-2xl px-4 py-2 mt-4 shadow-sm border border-gray-100 flex-col mb-28">
           <MenuItem
             icon="user"
             label="Personal Info"
@@ -223,10 +344,15 @@ export default function AccountScreen() {
             label="Preferences"
             onPress={() => router.push('/preferences' as any)}
           />
-          <MenuItem icon="clock" label="Reminder" />
+          <MenuItem
+            icon="clock"
+            label="Reminder"
+            onPress={() => router.push('/reminders' as any)}
+          />
           <MenuItem
             icon="shield"
             label="Account & Security"
+            onPress={() => router.push('/account-security' as any)}
           />
           {/* ── Screen Lock Toggle ────────────────────────────────────── */}
           <TouchableOpacity
@@ -255,12 +381,26 @@ export default function AccountScreen() {
               thumbColor={screenLockEnabled ? T.pink.action : '#9CA3AF'}
             />
           </TouchableOpacity>
-          <MenuItem icon="credit-card" label="Payment Methods" />
-          <MenuItem icon="file-text" label="Billing & Subscriptions" />
-          <MenuItem icon="activity" label="Data & Analytics" />
-          <MenuItem icon="eye" label="App Appearance" />
-          <MenuItem icon="help-circle" label="Help & Support" />
-          <MenuItem icon="star" label="Rate us" />
+          <MenuItem
+            icon="activity"
+            label="Data & Analytics"
+            onPress={() => router.push('/data-analytics' as any)}
+          />
+          <MenuItem
+            icon="eye"
+            label="App Appearance"
+            onPress={() => router.push('/app-appearance' as any)}
+          />
+          <MenuItem
+            icon="help-circle"
+            label="Help & Support"
+            onPress={() => router.push('/help-support' as any)}
+          />
+          <MenuItem
+            icon="star"
+            label="Rate us"
+            onPress={() => Alert.alert('Rate Nari Health', 'Thank you for supporting Nari! Would you like to rate us 5 stars on the store?', [{ text: 'Later', style: 'cancel' }, { text: 'Rate 5 Stars', onPress: () => Alert.alert('Thank You!', 'We appreciate your feedback.') }])}
+          />
           <MenuItem
             icon="log-out"
             label="Logout"

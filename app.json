@@ -48,7 +48,8 @@
       "expo-image",
       "expo-status-bar",
       "expo-secure-store",
-      "react-native-ble-plx"
+      "react-native-ble-plx",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,
