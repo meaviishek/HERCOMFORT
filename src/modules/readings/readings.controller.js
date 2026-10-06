@@ -1,6 +1,7 @@
 import SensorReading from '../../models/SensorReading.js';
 import Session from '../../models/Session.js';
 import { getIO } from '../../config/socket.js';
+import jwt from 'jsonwebtoken';
 
 /**
  * POST /api/readings
@@ -72,6 +73,13 @@ export async function createReading(req, res) {
         autoMode: reading.autoMode,
         active: reading.active,
         sensorError: reading.sensorError,
+        // New Her Comfort ESP32 C6 fields
+        emg: reading.emg,
+        position: reading.position,
+        bodyAngle: reading.bodyAngle,
+        motorMode: reading.motorMode,
+        motorSpeed: reading.motorSpeed,
+        heaterSetpoint: reading.heaterSetpoint,
         receivedAt: reading.receivedAt,
       });
 
@@ -80,6 +88,9 @@ export async function createReading(req, res) {
         deviceId: reading.deviceId,
         temp: reading.temp,
         bpm: reading.bpm,
+        emg: reading.emg,
+        position: reading.position,
+        motorMode: reading.motorMode,
         receivedAt: reading.receivedAt,
       });
     } catch (socketErr) {
@@ -230,6 +241,14 @@ export async function createBatchReadings(req, res) {
       active: Boolean(r.active ?? true),
       sensorError: Boolean(r.sensorError ?? false),
       sessionId: r.sessionId || null,
+      // New Her Comfort ESP32 C6 telemetry fields
+      emg: r.emg != null ? Number(r.emg) : undefined,
+      emgEnvelope: r.emgEnvelope != null ? Number(r.emgEnvelope) : undefined,
+      position: r.position || undefined,
+      bodyAngle: r.bodyAngle != null ? Number(r.bodyAngle) : undefined,
+      motorMode: r.motorMode || undefined,
+      motorSpeed: r.motorSpeed != null ? Number(r.motorSpeed) : undefined,
+      heaterSetpoint: r.heaterSetpoint != null ? Number(r.heaterSetpoint) : undefined,
       espTimestamp: r.timestamp || r.espTimestamp || Date.now(),
       receivedAt: r.receivedAt ? new Date(r.receivedAt) : new Date(),
     }));
@@ -261,7 +280,8 @@ export async function createBatchReadings(req, res) {
 
 /**
  * POST /api/readings/sessions
- * Store completed therapy session with duration and calculated features (EMG RMS, temp avg/max, IMU stats).
+ * Store session record (either when started with status IN_PROGRESS, or completed with status COMPLETED).
+ * Performs upsert based on sessionId so a session can be created at start and updated upon conclusion.
  */
 export async function createSession(req, res) {
   try {
@@ -273,6 +293,8 @@ export async function createSession(req, res) {
       endTime,
       durationSeconds,
       durationMin,
+      targetDurationMin,
+      status,
       painBefore,
       painAfter,
       location,
@@ -282,26 +304,121 @@ export async function createSession(req, res) {
       notes,
     } = req.body;
 
-    const id = sessionId || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const durSec = Number(durationSeconds ?? ((durationMin ?? 1) * 60));
-    const durMin = Number(durationMin ?? Math.max(1, Math.round(durSec / 60)));
+    // Determine user ID from body or JWT authorization header
+    let effectiveUserId = userId || req.user?._id;
+    if (!effectiveUserId && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      try {
+        const token = req.headers.authorization.split(' ')[1];
+        const decoded = jwt.decode(token);
+        if (decoded && (decoded.sub || decoded.id)) {
+          effectiveUserId = decoded.sub || decoded.id;
+        }
+      } catch {}
+    }
 
-    const sessionDoc = await Session.create({
-      sessionId: id,
-      userId: userId || null,
-      deviceId,
-      startTime: startTime ? new Date(startTime) : new Date(Date.now() - durSec * 1000),
-      endTime: endTime ? new Date(endTime) : new Date(),
-      durationSeconds: durSec,
-      durationMin: durMin,
-      painBefore: painBefore ?? 5,
-      painAfter: painAfter ?? 3,
-      location: location || 'Lower abdomen',
-      symptoms: symptoms || [],
-      therapy: therapy || {},
-      features: features || {},
-      notes: notes || '',
-    });
+    const id = sessionId || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const sessionStatus = status || (painAfter !== undefined && painAfter !== null ? 'COMPLETED' : 'IN_PROGRESS');
+    const durSec = Number(durationSeconds ?? (durationMin !== undefined ? Number(durationMin) * 60 : 0));
+    const durMin = Number(durationMin ?? Math.max(0, Math.round(durSec / 60)));
+    const targetDur = Number(targetDurationMin ?? 15);
+
+    const updateDoc = {
+      $set: {
+        status: sessionStatus,
+        targetDurationMin: targetDur,
+        location: location || 'Lower Abdomen',
+        painBefore: painBefore !== undefined ? Number(painBefore) : 5,
+        symptoms: Array.isArray(symptoms) ? symptoms : [],
+        deviceId: deviceId || 'HER-COMFORT',
+      },
+      $setOnInsert: {
+        sessionId: id,
+        startTime: startTime ? new Date(startTime) : new Date(),
+        createdAt: new Date(),
+      },
+    };
+
+    if (effectiveUserId) {
+      updateDoc.$set.userId = effectiveUserId;
+    }
+
+    if (endTime) {
+      updateDoc.$set.endTime = new Date(endTime);
+    } else if (sessionStatus === 'COMPLETED') {
+      updateDoc.$set.endTime = new Date();
+    }
+
+    if (durationSeconds !== undefined || sessionStatus === 'COMPLETED') {
+      updateDoc.$set.durationSeconds = durSec;
+      updateDoc.$set.durationMin = durMin;
+    }
+
+    if (painAfter !== undefined && painAfter !== null) {
+      updateDoc.$set.painAfter = Number(painAfter);
+    }
+
+    if (therapy) {
+      updateDoc.$set.therapy = {
+        heatEnabled: Boolean(therapy.heatEnabled),
+        targetTemp: Number(therapy.targetTemp ?? 40),
+        vibEnabled: Boolean(therapy.vibEnabled),
+        vibIntensity: Number(therapy.vibIntensity ?? 100),
+        vibMode: therapy.vibMode || 'CONTINUOUS',
+      };
+    }
+
+    if (features) {
+      const validContractionLevels = [
+        'MUSCLE_FREE', 'RELAXED', 'SLIGHTLY_TIGHT', 'HIGH_TIGHTNESS', 'EXTREME_CONTRACTION',
+      ];
+      const rawContraction = features.contractionLevel ?? 'MUSCLE_FREE';
+      const safeContraction = validContractionLevels.includes(rawContraction)
+        ? rawContraction
+        : 'MUSCLE_FREE';
+
+      const validPositions = ['UPRIGHT', 'WALKING', 'LYING', 'UNKNOWN'];
+      const rawPosition = features.primaryPosition ?? 'UNKNOWN';
+      const safePosition = validPositions.includes(rawPosition) ? rawPosition : 'UNKNOWN';
+
+      updateDoc.$set.features = {
+        emgRms: Number(features.emgRms ?? 0),
+        emgPoints: Array.isArray(features.emgPoints) ? features.emgPoints.slice(-30) : [],
+        avgTemp: Number(features.avgTemp ?? 36.6),
+        maxTemp: Number(features.maxTemp ?? 36.6),
+        avgBodyAngle: Number(features.avgBodyAngle ?? 0),
+        primaryPosition: safePosition,
+        imuStats: features.imuStats ?? { avgMovement: 0, maxMovement: 0 },
+        contractionLevel: safeContraction,
+      };
+    }
+
+    if (notes !== undefined) {
+      updateDoc.$set.notes = notes;
+    }
+
+    const sessionDoc = await Session.findOneAndUpdate(
+      { sessionId: id },
+      updateDoc,
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    // Notify connected dashboard clients of session lifecycle update
+    try {
+      const io = getIO();
+      if (io) {
+        io.emit('session-update', {
+          sessionId: id,
+          status: sessionStatus,
+          userId: sessionDoc.userId,
+          painBefore: sessionDoc.painBefore,
+          painAfter: sessionDoc.painAfter,
+          targetDurationMin: sessionDoc.targetDurationMin,
+          location: sessionDoc.location,
+          symptoms: sessionDoc.symptoms,
+          updatedAt: sessionDoc.updatedAt,
+        });
+      }
+    } catch {}
 
     return res.status(201).json({
       success: true,
@@ -319,10 +436,25 @@ export async function createSession(req, res) {
  */
 export async function getSessions(req, res) {
   try {
-    const { userId, deviceId, page = 1, limit = 20 } = req.query;
+    const { userId, deviceId, status, page = 1, limit = 50 } = req.query;
     const filter = {};
-    if (userId) filter.userId = userId;
+
+    let effectiveUserId = userId || req.user?._id;
+    if (!effectiveUserId && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      try {
+        const token = req.headers.authorization.split(' ')[1];
+        const decoded = jwt.decode(token);
+        if (decoded && (decoded.sub || decoded.id)) {
+          effectiveUserId = decoded.sub || decoded.id;
+        }
+      } catch {}
+    }
+
+    if (effectiveUserId) {
+      filter.$or = [{ userId: effectiveUserId }, { userId: null }];
+    }
     if (deviceId) filter.deviceId = deviceId;
+    if (status) filter.status = status;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -331,7 +463,7 @@ export async function getSessions(req, res) {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
-        .lean(),
+        .lean({ virtuals: true }),
       Session.countDocuments(filter),
     ]);
 

@@ -37,6 +37,7 @@ async function register(req, res, next) {
     return respond(res, 201, true, 'Account created successfully.', {
       user,
       accessToken,
+      refreshToken,
     });
   } catch (err) {
     next(err);
@@ -66,6 +67,7 @@ async function login(req, res, next) {
     return respond(res, 200, true, 'Login successful.', {
       user,
       accessToken,
+      refreshToken,
     });
   } catch (err) {
     next(err);
@@ -97,6 +99,7 @@ async function refresh(req, res, next) {
     return respond(res, 200, true, 'Token refreshed.', {
       user,
       accessToken,
+      refreshToken,
     });
   } catch (err) {
     next(err);
@@ -201,6 +204,7 @@ async function verifyOtp(req, res, next) {
     return respond(res, 200, true, 'Email verified successfully.', {
       user,
       accessToken,
+      refreshToken,
     });
   } catch (err) {
     next(err);
@@ -313,6 +317,7 @@ async function googleMobileLogin(req, res, next) {
     return respond(res, 200, true, 'Google login successful.', {
       user,
       accessToken,
+      refreshToken,
     });
   } catch (err) {
     next(err);

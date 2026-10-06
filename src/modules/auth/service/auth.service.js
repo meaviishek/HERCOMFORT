@@ -19,12 +19,12 @@ function generateTokens(userId) {
   const accessToken = jwt.sign(
     { sub: userId },
     process.env.JWT_ACCESS_SECRET,
-    { expiresIn: process.env.JWT_ACCESS_EXPIRES || '15m' }
+    { expiresIn: process.env.JWT_ACCESS_EXPIRES || '365d' }
   );
   const refreshToken = jwt.sign(
     { sub: userId },
     process.env.JWT_REFRESH_SECRET,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRES || '7d' }
+    { expiresIn: process.env.JWT_REFRESH_EXPIRES || '365d' }
   );
   return { accessToken, refreshToken };
 }
