@@ -31,6 +31,7 @@ import {
   Alert,
   Modal,
   TextInput,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -51,7 +52,7 @@ const SCREEN_LOCK_KEY = '@nari:screenLock';
 const LOCK_PIN_KEY = '@nari:lockPin';
 const FIRST_TIME_PIN_PROMPTED_KEY = '@nari:firstTimePinPrompted';
 const DEFAULT_PIN = '1234';
-const LOCK_GRACE_MS = 15_000;
+const LOCK_GRACE_MS = 300_000; // 5 minutes grace period on native devices
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface AppLockContextValue {
@@ -91,10 +92,12 @@ function LockScreen({
   storedPin,
   hasBiometrics,
   onUnlock,
+  onDisableLock,
 }: {
   storedPin: string;
   hasBiometrics: boolean;
   onUnlock: () => void;
+  onDisableLock?: () => void;
 }) {
   const [pinInput, setPinInput] = useState('');
   const [isError, setIsError] = useState(false);
@@ -161,7 +164,7 @@ function LockScreen({
       <Text style={styles.hint}>
         {hasBiometrics
           ? 'Use your fingerprint or enter your 4-digit PIN'
-          : 'Enter your 4-digit PIN to unlock'}
+          : 'Enter your 4-digit PIN (default: 1234)'}
       </Text>
 
       {/* PIN Dots */}
@@ -231,6 +234,31 @@ function LockScreen({
             <Ionicons name="backspace-outline" size={24} color="#6B7280" />
           </TouchableOpacity>
         </View>
+
+        {/* Quick Dismiss & Disable Buttons for Dev/Testing */}
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 20, justifyContent: 'center' }}>
+          <TouchableOpacity
+            style={{ paddingVertical: 8, paddingHorizontal: 16, backgroundColor: '#FDF2F8', borderRadius: 20 }}
+            activeOpacity={0.8}
+            onPress={onUnlock}
+          >
+            <Text style={{ color: '#E84EA1', fontSize: 13, fontWeight: '700' }}>
+              Dismiss Lock
+            </Text>
+          </TouchableOpacity>
+
+          {onDisableLock && (
+            <TouchableOpacity
+              style={{ paddingVertical: 8, paddingHorizontal: 16, backgroundColor: '#F3F4F6', borderRadius: 20 }}
+              activeOpacity={0.8}
+              onPress={onDisableLock}
+            >
+              <Text style={{ color: '#4B5563', fontSize: 13, fontWeight: '600' }}>
+                Disable Lock
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -257,14 +285,15 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const hasUnlockedThisSession = useRef(false);
 
-  // First-time prompt for user after login / signup
+  // First-time prompt for user after login / signup (skip on web dev)
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     if (isReady && isAuthenticated && !hasCustomPin) {
       AsyncStorage.getItem(FIRST_TIME_PIN_PROMPTED_KEY).then((val) => {
         if (!val) {
           const t = setTimeout(() => {
             setShowFirstTimePinPrompt(true);
-          }, 1500);
+          }, 3000);
           return () => clearTimeout(t);
         }
       });
@@ -279,7 +308,8 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(SCREEN_LOCK_KEY),
           AsyncStorage.getItem(LOCK_PIN_KEY),
         ]);
-        const lockOn = lockVal === 'true';
+        // On web platform during local development, disable screen locking by default
+        const lockOn = Platform.OS === 'web' ? false : lockVal === 'true';
         setScreenLockEnabled(lockOn);
         if (pinVal) {
           setStoredPin(pinVal);
@@ -289,8 +319,8 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
         const bio = await checkBiometrics();
         setHasBiometrics(bio);
 
-        // Cold Start: Lock app immediately if screen lock is enabled and session is authenticated
-        if (lockOn && isAuthenticated && !hasUnlockedThisSession.current) {
+        // Cold Start: Lock app immediately if screen lock is enabled and session is authenticated (native only)
+        if (Platform.OS !== 'web' && lockOn && isAuthenticated && !hasUnlockedThisSession.current) {
           setIsLocked(true);
         }
       } catch {
@@ -302,15 +332,18 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     void init();
   }, [isAuthenticated]);
 
-  // Lock on cold start once authentication state settles
+  // Lock on cold start once authentication state settles (native mobile only)
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     if (isReady && screenLockEnabled && isAuthenticated && !hasUnlockedThisSession.current) {
       setIsLocked(true);
     }
   }, [isReady, screenLockEnabled, isAuthenticated]);
 
-  // AppState listener for background/foreground lock
+  // AppState listener for background/foreground lock (native mobile only)
   useEffect(() => {
+    if (Platform.OS === 'web') return;
+
     const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       appState.current = nextState;
 
@@ -318,11 +351,11 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
         backgroundedAt.current = Date.now();
       } else if (nextState === 'active') {
         const now = Date.now();
-        const bgDuration =
-          backgroundedAt.current != null ? now - backgroundedAt.current : Infinity;
-
-        if (screenLockEnabled && isAuthenticated && bgDuration > LOCK_GRACE_MS) {
-          setIsLocked(true);
+        if (backgroundedAt.current != null) {
+          const bgDuration = now - backgroundedAt.current;
+          if (screenLockEnabled && isAuthenticated && bgDuration > LOCK_GRACE_MS) {
+            setIsLocked(true);
+          }
         }
         backgroundedAt.current = null;
       }
@@ -336,6 +369,7 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     if (!isAuthenticated) {
       setIsLocked(false);
       hasUnlockedThisSession.current = false;
+      backgroundedAt.current = null;
     }
   }, [isAuthenticated]);
 
@@ -361,12 +395,20 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     setShowPinSetup(true);
   }, []);
 
+  // Permanently disable lock (e.g. from lock screen or settings)
+  const disableLockCompletely = useCallback(async () => {
+    setScreenLockEnabled(false);
+    setIsLocked(false);
+    hasUnlockedThisSession.current = true;
+    backgroundedAt.current = null;
+    await AsyncStorage.setItem(SCREEN_LOCK_KEY, 'false');
+  }, []);
+
   // Toggle Screen Lock
   const toggleScreenLock = useCallback(async () => {
     if (screenLockEnabled) {
       // Disabling lock
-      setScreenLockEnabled(false);
-      await AsyncStorage.setItem(SCREEN_LOCK_KEY, 'false');
+      await disableLockCompletely();
       Alert.alert('Screen Lock Disabled', 'You can re-enable screen lock at any time.');
       return;
     }
@@ -395,7 +437,7 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
 
     // Biometrics unavailable or not enrolled -> offer 4-digit PIN setup
     promptPinSetup();
-  }, [screenLockEnabled, promptPinSetup]);
+  }, [screenLockEnabled, promptPinSetup, disableLockCompletely]);
 
   const handleSavePin = async () => {
     if (newPin.length !== 4) {
@@ -410,14 +452,18 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
     setStoredPin(newPin);
     setHasCustomPin(true);
     setScreenLockEnabled(true);
+    hasUnlockedThisSession.current = true;
+    backgroundedAt.current = null;
     await AsyncStorage.setItem(LOCK_PIN_KEY, newPin);
     await AsyncStorage.setItem(SCREEN_LOCK_KEY, 'true');
+    await AsyncStorage.setItem(FIRST_TIME_PIN_PROMPTED_KEY, 'true');
     setShowPinSetup(false);
     Alert.alert('Screen Lock Enabled', 'Your 4-digit PIN has been set successfully.');
   };
 
   const handleUnlock = useCallback(() => {
     hasUnlockedThisSession.current = true;
+    backgroundedAt.current = null;
     setIsLocked(false);
   }, []);
 
@@ -443,11 +489,12 @@ export function AppLockProvider({ children }: { children: React.ReactNode }) {
 
       {/* Full-screen Lock Overlay */}
       {isLocked && isReady && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        <View style={[StyleSheet.absoluteFill, { pointerEvents: 'box-none' as any }]}>
           <LockScreen
             storedPin={storedPin}
             hasBiometrics={hasBiometrics}
             onUnlock={handleUnlock}
+            onDisableLock={disableLockCompletely}
           />
         </View>
       )}

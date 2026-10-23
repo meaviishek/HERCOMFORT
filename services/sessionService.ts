@@ -39,6 +39,7 @@ export interface SessionRecord {
     maxMovement: number;
   };
   contractionLevel?: string;
+  settingSource?: 'ml_recommendation' | 'user_modified' | 'user_manual' | string;
   notes: string;
   deviceId?: string;
   userId?: string;

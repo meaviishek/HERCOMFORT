@@ -49,6 +49,7 @@ interface AuthContextValue {
     bloodGroup: string;
   }) => Promise<void>;
   updateUser: (user: AuthUser) => void;
+  demoLogin: () => void;
 }
 
 // ─── Context ───────────────────────────────────────────────────────────────────
@@ -123,9 +124,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAccessToken(newToken);
             originalReq.headers.Authorization = `Bearer ${newToken}`;
             return authApi(originalReq);
-          } catch (refreshErr) {
-            // Keep local user session saved; do NOT auto-logout on transient network or refresh failures
-            console.warn('[AuthContext] Token refresh failed; preserving local session:', refreshErr);
+          } catch (refreshErr: any) {
+            // If the refresh token itself is invalid or rejected by server, reset session
+            if (refreshErr?.response?.status === 401) {
+              console.log('[AuthContext] Session expired or invalid. Resetting to login.');
+              tokenRef.current = null;
+              setAccessToken(null);
+              setUser(null);
+              void clearTokens();
+            } else {
+              console.warn('[AuthContext] Transient refresh error:', refreshErr?.message || refreshErr);
+            }
           } finally {
             isRefreshingRef.current = false;
           }
@@ -217,6 +226,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const demoLogin = useCallback((): void => {
+    const demoUser: AuthUser = {
+      _id: 'demo_user_001',
+      name: 'Elia Sharma',
+      email: 'demo@elia.com',
+      isVerified: true,
+      profileComplete: true,
+      profile: {
+        dateOfBirth: '2001-04-12',
+        age: 25,
+        weight: 56,
+        height: 165,
+        bloodGroup: 'B+',
+      },
+    };
+    _applyTokens('demo_mock_jwt_token', demoUser, 'demo_refresh_token');
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -231,6 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         verifyOtp,
         completeProfile,
         updateUser,
+        demoLogin,
       }}
     >
       {children}

@@ -9,7 +9,7 @@ import { BluetoothProvider } from '../context/BluetoothContext';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { AppLockProvider } from '../context/AppLockContext';
 import { useEffect, useState } from 'react';
-import { DeviceEventEmitter, View, Text, SafeAreaView } from 'react-native';
+import { DeviceEventEmitter, View, Text, SafeAreaView, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import notificationService from '../services/notificationService';
 
@@ -60,6 +60,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated, isLoading, user?.profileComplete, segments]);
 
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     notificationService.init().catch(() => {});
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const route = response.notification?.request?.content?.data?.route;

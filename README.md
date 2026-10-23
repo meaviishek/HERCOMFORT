@@ -21,11 +21,11 @@
   - [2. 4-Digit Passcode & Biometric Security](#2-4-digit-passcode--biometric-security)
   - [3. Today Dashboard & Cycle Prediction](#3-today-dashboard--cycle-prediction)
   - [4. Holistic Wellness & Wearable Relief Hub](#4-holistic-wellness--wearable-relief-hub)
-  - [5. Nari AI Health Companion (GPT-4o Health)](#5-nari-ai-health-companion-gpt-4o-health)
+  - [5. Nari AI Health Companion (Rule-Based)](#5-nari-ai-health-companion-rule-based)
   - [6. Personalized Therapy Session Pre-Configuration](#6-personalized-therapy-session-pre-configuration)
   - [7. Session Duration Presets & Therapy Launcher](#7-session-duration-presets--therapy-launcher)
-  - [8. Clinical History & Bio-Telemetry Audits](#8-clinical-history--bio-telemetry-audits)
-  - [9. AI Clinical Audit & Bioamp Telemetry Report](#9-ai-clinical-audit--bioamp-telemetry-report)
+  - [8. Session History & Bio-Telemetry Audits](#8-session-history--bio-telemetry-audits)
+  - [9. Session Telemetry Report & Bioamp Data](#9-session-telemetry-report--bioamp-data)
   - [10. Account Profile & Edge AI Health Shield](#10-account-profile--edge-ai-health-shield)
   - [11. Her Comfort ESP32 BLE Device Scanner](#11-her-comfort-esp32-ble-device-scanner)
   - [12. Disaster Health Early Warning (India Shield)](#12-disaster-health-early-warning-india-shield)
@@ -51,7 +51,7 @@ Dysmenorrhea (menstrual cramping) affects up to **80% of menstruating individual
 
 1. **Active Thermo-Vibrational Relief**: Controlled by an **ESP32-C6 microcontroller** with dual heating pads (36°C – 40°C), multi-mode harmonic vibration patterns, and real-time EMG muscle tension biofeedback.
 2. **Cycle & Fertility Intelligence**: Mathematical prediction models that forecast period onset, fertile windows, ovulation dates, and hormonal stages.
-3. **Clinical Bio-Telemetry & Audit Engine**: Quantifies pain reduction (e.g. Pain 5 → 3, 40% reduction), tracks EMG muscle tone, evaluates thermal regulation, and exports clinical PDF reports.
+3. **Session History & Telemetry Reports**: Quantifies pain reduction (e.g. Pain 5 → 3, 40% reduction), tracks EMG muscle tone, evaluates thermal regulation, and displays per-session telemetry summaries.
 4. **Context-Aware AI Health Assistant**: Powered by a health-specialized assistant model that directly interfaces with device sensors to recommend custom heat setpoints, stretching protocols, and relief teas.
 5. **Edge AI Health & Climate Shield**: On-device anomaly detection, extreme heatwave/AQI disaster advisories, personal vulnerability tuning, and emergency fall detection.
 6. **Holistic Lifestyle Tracking**: Biomarker tracking (15 symptoms), mood journals, hydration goals, sleep rest index, vagus nerve breathing calm protocols, and pelvic floor physical therapy.
@@ -67,7 +67,7 @@ Dysmenorrhea (menstrual cramping) affects up to **80% of menstruating individual
 | **Bioamp & EMG Muscle Contraction Monitoring** | Measures abdominal tension levels (0–100 RMS scale) in real time to automatically detect spasms and recommend therapy sessions. |
 | **Symptom & Pain Delta Tracking** | Enables pre-session pain assessments (0–10 scale), anatomical discomfort localization (Lower Abdomen, Back, Pelvic Floor, Suprapubic), and post-session clinical audit scores. |
 | **Precision Cycle & Fertility Forecasting** | Predicts period start dates, fertile windows, and ovulation based on user history, with instant visual indicators on a circular progress ring. |
-| **AI Clinical Audits & PDF Exports** | Automatically generates clinical session summaries evaluating pain attenuation percentage, thermal safety regulation, motor intensity, and muscle relaxation. |
+| **Session History & Telemetry Reports** | Automatically generates per-session summaries evaluating pain delta, thermal safety regulation, motor intensity, and muscle relaxation. (Rule-based; not a medical report.) |
 | **Edge AI Disaster & Climate Shield** | Delivers real-time heatwave, smog, flood, and cyclone health warnings with adaptive threshold adjustments for commuters, respiratory patients, and pregnancy mode. |
 | **Guided Mind-Body Protocols** | 5-minute vagus nerve breathing exercises, pelvic relaxation routines, and cycle-phase nutrition recommendations. |
 | **Emergency Fall & Safety Shield** | Wearable accelerometer kinematics with automated fall detection, emergency sirens, and one-touch SOS dispatch to designated contacts. |
@@ -89,7 +89,7 @@ graph TD
         Security["AppLockContext (Biometrics & 4-Digit PIN)"]
         Router["Expo Router v4 (Tabs & Deep Linking)"]
         StyleEngine["NativeWind v4 & TailwindCSS"]
-        AI_Module["Nari AI Assistant (GPT-4o Health API)"]
+        AI_Module["Nari AI Companion (Rule-Based Scorer)"]
         EdgeShield["Edge AI Health & Climate Engine"]
     end
 
@@ -249,7 +249,7 @@ graph TD
 
 ---
 
-### 5. Nari AI Health Companion (GPT-4o Health)
+### 5. Nari AI Health Companion (Rule-Based)
 <table align="center">
   <tr>
     <td align="center" width="45%">
@@ -337,7 +337,7 @@ graph TD
 
 ---
 
-### 8. Clinical History & Bio-Telemetry Audits
+### 8. Session History & Bio-Telemetry Audits
 <table align="center">
   <tr>
     <td align="center" width="45%">
@@ -372,7 +372,7 @@ graph TD
 
 ---
 
-### 9. AI Clinical Audit & Bioamp Telemetry Report
+### 9. Session Telemetry Report & Bioamp Data
 <table align="center">
   <tr>
     <td align="center" width="45%">

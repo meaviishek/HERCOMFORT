@@ -21,6 +21,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
@@ -282,11 +283,13 @@ function TelemetryGraph({ data }: { data: GraphPoint[] }) {
   );
 }
 
-// End Session Modal
+// End Session Modal (Fix 2: explicit post-pain required)
 function EndSessionModal({
   visible, onEnd, onCancel, painBefore, elapsedSecs,
-}: { visible: boolean; onEnd: (p: number) => void; onCancel: () => void; painBefore: number; elapsedSecs: number }) {
-  const [painAfter, setPainAfter] = useState(painBefore);
+}: { visible: boolean; onEnd: (p: number, confirmed: boolean) => void; onCancel: () => void; painBefore: number; elapsedSecs: number }) {
+  // Fix 2: null means user has NOT selected yet; SAVE is blocked until they do.
+  const [painAfter, setPainAfter] = useState<number | null>(null);
+  const confirmed = painAfter !== null;
   const mins = Math.max(1, Math.round(elapsedSecs / 60));
   return (
     <Modal visible={visible} transparent animationType="slide">
@@ -298,7 +301,10 @@ function EndSessionModal({
               <Text style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: '700', color: T.blue }}>{mins} MIN ({fmtTimer(elapsedSecs)})</Text>
             </View>
           </View>
-          <Text style={{ color: T.sub, fontSize: 12, marginBottom: 16 }}>Record post-session pain level before saving.</Text>
+          {/* Fix 2: instruction banner — visible until user taps a number */}
+          <Text style={{ color: confirmed ? T.green : T.amber, fontSize: 12, fontWeight: '700', marginBottom: 10 }}>
+            {confirmed ? `✓ Post-session pain recorded: ${painAfter}/10` : '⚠ Tap your current pain level below to enable Save.'}
+          </Text>
           <View style={{ flexDirection: 'row', backgroundColor: '#F8FAFC', borderRadius: 14, padding: 14, marginBottom: 18 }}>
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={{ fontSize: 24, fontFamily: 'monospace', fontWeight: '900', color: T.red }}>{painBefore}/10</Text>
@@ -306,16 +312,23 @@ function EndSessionModal({
             </View>
             <Feather name="arrow-right" size={18} color={T.sub} />
             <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ fontSize: 24, fontFamily: 'monospace', fontWeight: '900', color: T.green }}>{painAfter}/10</Text>
+              <Text style={{ fontSize: 24, fontFamily: 'monospace', fontWeight: '900', color: confirmed ? T.green : T.muted }}>
+                {confirmed ? `${painAfter}/10` : '—'}
+              </Text>
               <Text style={{ fontSize: 10, fontWeight: '700', color: T.muted, marginTop: 2 }}>CURRENT PAIN</Text>
             </View>
           </View>
-          <PainScale value={painAfter} onChange={setPainAfter} />
+          <PainScale value={painAfter ?? -1} onChange={setPainAfter} />
           <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
             <TouchableOpacity onPress={onCancel} style={{ flex: 1, borderRadius: 14, borderWidth: 1.5, borderColor: T.border, padding: 14, alignItems: 'center' }}>
               <Text style={{ fontWeight: '700', color: T.sub, fontSize: 13 }}>RESUME</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => onEnd(painAfter)} style={{ flex: 1, borderRadius: 14, backgroundColor: T.pink, padding: 14, alignItems: 'center' }}>
+            {/* Fix 2: disabled until painAfter is explicitly tapped */}
+            <TouchableOpacity
+              onPress={() => confirmed && onEnd(painAfter!, true)}
+              disabled={!confirmed}
+              style={{ flex: 1, borderRadius: 14, backgroundColor: confirmed ? T.pink : '#CBD5E1', padding: 14, alignItems: 'center' }}
+            >
               <Text style={{ fontWeight: '800', color: '#FFF', fontSize: 13 }}>SAVE SESSION</Text>
             </TouchableOpacity>
           </View>
@@ -353,7 +366,7 @@ const MOTOR_MODES: { id: MotorMode; label: string; icon: string; color: string }
 // Main screen
 export default function SessionScreen() {
   const router = useRouter();
-  const { connectedDevice, connectionStatus, liveData, sendCommand } = useBluetooth();
+  const { connectedDevice, connectionStatus, liveData, sendCommand, startDemo } = useBluetooth();
   const isConnected = connectionStatus === CONNECTION_STATUS.CONNECTED;
 
   const [painLevel,      setPainLevel]      = useState(5);
@@ -370,9 +383,22 @@ export default function SessionScreen() {
   const [heaterSetpoint, setHeaterSetpoint] = useState(40.0);
   const [graphData,      setGraphData]      = useState<GraphPoint[]>([]);
 
+  // ── AI Prescription State ──────────────────────────────────────────────────
+  type AIPrescription = {
+    presetId: string; presetName: string; targetTemp: number;
+    vibrationMode: string; vibrationSpeed: number;
+    durationMin: number; description: string;
+  };
+  const [aiPrescription,     setAiPrescription]     = useState<AIPrescription | null>(null);
+  const [ruleBasedRx,        setRuleBasedRx]        = useState<AIPrescription | null>(null);
+  const [aiLoading,          setAiLoading]          = useState(false);
+  const [aiLogId,            setAiLogId]            = useState<string | null>(null);
+  const [aiApplied,          setAiApplied]          = useState(false);
+  const [aiAudit,            setAiAudit]            = useState<any>(null);
+
   const timerRef           = useRef<ReturnType<typeof setInterval> | null>(null);
   const batchTimerRef      = useRef<ReturnType<typeof setInterval> | null>(null);
-  const currentSessionId   = useRef('');
+  const currentSessionId   = useRef(`sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
   const sessionStartTime   = useRef('');
   const liveDataRef        = useRef(liveData);
   const tempBuffer         = useRef<number[]>([]);
@@ -462,12 +488,44 @@ export default function SessionScreen() {
     return () => clearInterval(iv);
   }, [sessionActive, connectedDevice]);
 
-  // Session timer
+  // Session timer — Fix 6: auto-stop at target duration; hard cap at 60 min
+  const HARD_MAX_SECONDS = 60 * 60; // 60 minutes, safety ceiling
   useEffect(() => {
-    if (sessionActive) { timerRef.current = setInterval(() => setSessionSeconds(s => s + 1), 1000); }
-    else { if (timerRef.current) clearInterval(timerRef.current); }
+    if (!sessionActive) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+    timerRef.current = setInterval(() => {
+      setSessionSeconds(s => {
+        const next = s + 1;
+        const targetSecs = presetDuration * 60;
+
+        if (next >= HARD_MAX_SECONDS) {
+          // Hard ceiling: force-stop hardware and open end modal
+          clearInterval(timerRef.current!);
+          sendRaw('MOTOR:OFF');
+          sendRaw('HEATER:OFF');
+          setMotorEnabled(false);
+          setHeaterEnabled(false);
+          setSessionActive(false);
+          setShowEndModal(true);
+          console.warn('[session] Hard max session time (60 min) reached — auto-stopped.');
+        } else if (next >= targetSecs && next % targetSecs === 0) {
+          // Preset duration reached: stop hardware, open end modal
+          sendRaw('MOTOR:OFF');
+          sendRaw('HEATER:OFF');
+          setMotorEnabled(false);
+          setHeaterEnabled(false);
+          setSessionActive(false);
+          setShowEndModal(true);
+        }
+
+        return next;
+      });
+    }, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [sessionActive]);
+  }, [sessionActive, presetDuration, sendRaw]);
+
 
   // Batch upload
   useEffect(() => {
@@ -482,16 +540,134 @@ export default function SessionScreen() {
     return () => { if (batchTimerRef.current) clearInterval(batchTimerRef.current); };
   }, [sessionActive]);
 
+  // ── AI Prescription Fetch ────────────────────────────────────────────────
+  const fetchAIPrescription = useCallback(async (pain: number) => {
+    setAiLoading(true);
+    setAiPrescription(null);
+    setAiApplied(false);
+    try {
+      const result = await ApiService.post('/therapy/prescribe', {
+        // Fix 4: link prescribe log to the current session
+        sessionId: currentSessionId.current || null,
+        context: {
+          painPre: pain,
+          emg: currentEMG || undefined,           // undefined → backend null (no fake default)
+          posture: currentPosition || 'UNKNOWN',
+          // Fix 3a: no hardcoded defaults — let backend null-default optional fields
+          stress: symptoms.includes('Fatigue') ? 7 : undefined,
+          fatigue: symptoms.includes('Fatigue') ? 8 : undefined,
+          tookMedication: false,
+          skinTempIn: currentTemp,
+        },
+        contraindications: {},
+      });
+      if (result.success) {
+        setAiPrescription(result.aiPrescription);
+        setRuleBasedRx(result.ruleBasedPrescription);
+        setAiLogId(result.logId);
+        setAiAudit(result.audit);
+      }
+    } catch {
+      // Silent fail — user can still start manually
+    } finally {
+      setAiLoading(false);
+    }
+  }, [currentEMG, currentPosition, currentTemp, symptoms]);
+
+  // Re-fetch AI prescription whenever pain level changes
+  useEffect(() => {
+    const timer = setTimeout(() => fetchAIPrescription(painLevel), 600);
+    return () => clearTimeout(timer);
+  }, [painLevel, fetchAIPrescription]);
+
+  // Fix 3: track whether user manually changed settings after AI was applied
+  const userModifiedRef = useRef(false);
+
+  // Apply AI prescription to all session controls
+  const applyAIPrescription = useCallback(() => {
+    if (!aiPrescription) return;
+    const mode = aiPrescription.vibrationMode as MotorMode;
+    setMotorMode(mode);
+    setMotorSpeed(aiPrescription.vibrationSpeed);
+    setHeaterSetpoint(aiPrescription.targetTemp);
+    setPresetDuration(aiPrescription.durationMin);
+    setMotorEnabled(true);
+    setHeaterEnabled(true);
+    setAiApplied(true);
+    userModifiedRef.current = false;    // reset override flag on fresh apply
+  }, [aiPrescription]);
+
+
+  // Post-session feedback (Fix 2: includes painPostConfirmed flag)
+  const submitAIFeedback = useCallback(async (
+    painAfter: number,
+    durationSecs: number,
+    painPostConfirmed: boolean,
+    source: string,
+  ) => {
+    if (!aiLogId) return;
+    try {
+      await ApiService.post('/therapy/feedback', {
+        logId: aiLogId,
+        sessionId: currentSessionId.current,
+        painPost: painAfter,
+        actualDurationSeconds: durationSecs,
+        completionStatus: 'COMPLETED',
+        settingSource: source,
+        painPostConfirmed,          // Fix 2: true = user explicitly tapped a value
+      });
+    } catch {
+      // Non-blocking
+    }
+  }, [aiLogId]);
+
+
   const handleStart = useCallback(async () => {
     if (!isConnected) {
-      Alert.alert('Device Offline', 'Connect your Her Comfort belt to begin.', [
-        { text: 'Connect Belt', onPress: () => router.push('/ble-device' as any) },
-        { text: 'Cancel', style: 'cancel' },
-      ]); return;
+      Alert.alert(
+        'Device Offline',
+        'Connect your physical Her Comfort belt via Bluetooth, or start with the built-in device simulator for local testing.',
+        [
+          {
+            text: '⚡ Start with Simulator',
+            onPress: () => {
+              startDemo();
+              setTimeout(() => {
+                const activeSessionId = currentSessionId.current || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+                currentSessionId.current = activeSessionId;
+                const startIso = new Date().toISOString();
+                sessionStartTime.current = startIso;
+                setSessionSeconds(0);
+                tempBuffer.current = [];
+                emgBuffer.current = [];
+                batchBuffer.current = [];
+                goodPostureFrames.current = 0;
+                totalPostureFrames.current = 0;
+                setGraphData([]);
+                setSessionActive(true);
+                sessionService.startSession({
+                  sessionId: newSessionId,
+                  location,
+                  painBefore: painLevel,
+                  symptoms,
+                  targetDurationMin: presetDuration,
+                  deviceId: 'HER-COMFORT-SIMULATOR',
+                  targetTemp: heaterSetpoint,
+                  vibIntensity: motorSpeed,
+                  vibMode: motorMode,
+                }).catch((err) => console.warn('[Session] startSession DB notice:', err));
+              }, 300);
+            },
+          },
+          { text: 'Pair Bluetooth', onPress: () => router.push('/ble-device' as any) },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+      return;
     }
-    const newSessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const activeSessionId = currentSessionId.current || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    currentSessionId.current = activeSessionId;
     const startIso = new Date().toISOString();
-    currentSessionId.current = newSessionId;
     sessionStartTime.current = startIso;
 
     setSessionSeconds(0); tempBuffer.current = []; emgBuffer.current = []; batchBuffer.current = [];
@@ -500,7 +676,7 @@ export default function SessionScreen() {
 
     // Save session info to MongoDB database immediately when user starts the session
     sessionService.startSession({
-      sessionId: newSessionId,
+      sessionId: activeSessionId,
       location,
       painBefore: painLevel,
       symptoms,
@@ -513,6 +689,7 @@ export default function SessionScreen() {
   }, [
     isConnected,
     router,
+    startDemo,
     location,
     painLevel,
     symptoms,
@@ -523,7 +700,24 @@ export default function SessionScreen() {
     motorMode,
   ]);
 
-  const handleEnd = useCallback(async (painAfter: number) => {
+  // Fix 3: Wrap manual control handlers to set userModified flag
+  const handleMotorModeWithTracking = useCallback((mode: MotorMode) => {
+    if (aiApplied) userModifiedRef.current = true;
+    handleMotorMode(mode);
+  }, [aiApplied, handleMotorMode]);
+
+  const handleSpeedChangeWithTracking = useCallback((v: number) => {
+    if (aiApplied) userModifiedRef.current = true;
+    handleSpeedChange(v);
+  }, [aiApplied, handleSpeedChange]);
+
+  const handleSetpointChangeWithTracking = useCallback((delta: number) => {
+    if (aiApplied) userModifiedRef.current = true;
+    handleSetpointChange(delta);
+  }, [aiApplied, handleSetpointChange]);
+
+  // Fix 2+3: handleEnd now receives (painAfter, painPostConfirmed)
+  const handleEnd = useCallback(async (painAfter: number, painPostConfirmed: boolean) => {
     const wasHeaterEnabled = heaterEnabled;
     const wasMotorEnabled  = motorEnabled;
     setShowEndModal(false); setSessionActive(false);
@@ -539,7 +733,21 @@ export default function SessionScreen() {
     const maxTemp = parseFloat(Math.max(...allTemp).toFixed(1));
     const allEmg  = emgBuffer.current.length ? emgBuffer.current : [currentEMG];
     const emgRms  = parseFloat(Math.sqrt(allEmg.reduce((s, v) => s + v * v, 0) / allEmg.length).toFixed(1));
-    const notes = `Session concluded. ${motorMode} at ${motorSpeed}%. Setpoint ${heaterSetpoint}C. Pain ${painLevel} -> ${painAfter}.`;
+
+    // Fix 3: compute effective settingSource
+    const effectiveSource = !aiApplied
+      ? 'user_manual'
+      : userModifiedRef.current
+        ? 'user_modified'
+        : 'ml_recommendation';
+
+    const sourceLabel = effectiveSource === 'ml_recommendation'
+      ? 'AI Prescription'
+      : effectiveSource === 'user_modified'
+        ? 'User Modified (AI Prescribed with manual adjustments)'
+        : 'User Manual';
+
+    const notes = `Protocol Source: ${sourceLabel}. ${motorMode} at ${motorSpeed}%. Setpoint ${heaterSetpoint}C. Pain ${painLevel} -> ${painAfter}.`;
     // Compute average body angle from posture frames
     const avgBodyAngle = totalPostureFrames.current > 0
       ? parseFloat((goodPostureFrames.current / totalPostureFrames.current * 90).toFixed(1))
@@ -575,9 +783,14 @@ export default function SessionScreen() {
         primaryPosition,
         imuStats: { avgMovement: 0, maxMovement: 0 },
         contractionLevel: emgClass.label,
+        settingSource: effectiveSource,
         notes,
         deviceId: connectedDevice?.name || 'HER-COMFORT',
       });
+
+      // Submit AI feedback for closed-loop learning (Fix 2+3)
+      submitAIFeedback(painAfter, dSecs, painPostConfirmed, effectiveSource);
+
 
       Alert.alert(
         'Session Saved',
@@ -592,6 +805,7 @@ export default function SessionScreen() {
     }
     setSessionSeconds(0); tempBuffer.current = []; emgBuffer.current = [];
     goodPostureFrames.current = 0; totalPostureFrames.current = 0; setGraphData([]);
+    currentSessionId.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   }, [
     sessionSeconds,
     currentTemp,
@@ -602,6 +816,7 @@ export default function SessionScreen() {
     heaterEnabled,
     motorEnabled,
     painLevel,
+    submitAIFeedback,
     location,
     symptoms,
     presetDuration,
@@ -747,7 +962,7 @@ export default function SessionScreen() {
               {MOTOR_MODES.map(m => {
                 const isActive = motorEnabled ? (motorMode === m.id && m.id !== 'OFF') : m.id === 'OFF';
                 return (
-                  <TouchableOpacity key={m.id} onPress={() => handleMotorMode(m.id)} style={[s.modeBtn, isActive && { backgroundColor: m.color, borderColor: m.color }]}>
+                  <TouchableOpacity key={m.id} onPress={() => handleMotorModeWithTracking(m.id)} style={[s.modeBtn, isActive && { backgroundColor: m.color, borderColor: m.color }]}>
                     <MaterialCommunityIcons name={m.icon as any} size={15} color={isActive ? '#FFF' : T.sub} />
                     <Text style={[s.modeBtnText, isActive && { color: '#FFF', fontWeight: '800' }]}>{m.label}</Text>
                   </TouchableOpacity>
@@ -760,10 +975,10 @@ export default function SessionScreen() {
                 <Text style={{ fontSize: 11, fontWeight: '700', color: T.sub }}>SPEED</Text>
                 <Text style={{ fontSize: 14, fontFamily: 'monospace', fontWeight: '900', color: T.pink }}>{motorSpeed}%</Text>
               </View>
-              <PrecisionSlider value={motorSpeed} min={0} max={100} onChange={handleSpeedChange} disabled={!motorEnabled} color={T.pink} />
+              <PrecisionSlider value={motorSpeed} min={0} max={100} onChange={handleSpeedChangeWithTracking} disabled={!motorEnabled} color={T.pink} />
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
                 {[{ l: 'Low 30%', v: 30 }, { l: 'Med 65%', v: 65 }, { l: 'High 95%', v: 95 }].map(p => (
-                  <TouchableOpacity key={p.v} disabled={!motorEnabled} onPress={() => handleSpeedChange(p.v)}
+                  <TouchableOpacity key={p.v} disabled={!motorEnabled} onPress={() => handleSpeedChangeWithTracking(p.v)}
                     style={[s.quickChip, Math.abs(motorSpeed - p.v) < 15 && motorEnabled && s.quickChipActive]}>
                     <Text style={[s.quickChipText, Math.abs(motorSpeed - p.v) < 15 && motorEnabled && { color: T.pink, fontWeight: '800' }]}>{p.l}</Text>
                   </TouchableOpacity>
@@ -811,21 +1026,21 @@ export default function SessionScreen() {
             </View>
             {/* Setpoint stepper */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: T.canvas, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, opacity: heaterEnabled ? 1 : 0.45 }}>
-              <TouchableOpacity disabled={!heaterEnabled} onPress={() => handleSetpointChange(-0.5)} style={s.stepperBtn}>
+              <TouchableOpacity disabled={!heaterEnabled} onPress={() => handleSetpointChangeWithTracking(-0.5)} style={s.stepperBtn}>
                 <Feather name="minus" size={18} color={T.text} />
               </TouchableOpacity>
               <View style={{ alignItems: 'center' }}>
                 <Text style={{ fontSize: 15, fontFamily: 'monospace', fontWeight: '800', color: T.text }}>{heaterSetpoint.toFixed(1)}C SETPOINT</Text>
                 <Text style={{ fontSize: 10, color: T.muted }}>Range: 36.0C - 40.0C</Text>
               </View>
-              <TouchableOpacity disabled={!heaterEnabled} onPress={() => handleSetpointChange(0.5)} style={s.stepperBtn}>
+              <TouchableOpacity disabled={!heaterEnabled} onPress={() => handleSetpointChangeWithTracking(0.5)} style={s.stepperBtn}>
                 <Feather name="plus" size={18} color={T.text} />
               </TouchableOpacity>
             </View>
             {/* Quick presets */}
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
               {[{ l: '36C', v: 36 }, { l: '38C', v: 38 }, { l: '40C', v: 40 }].map(p => (
-                <TouchableOpacity key={p.v} disabled={!heaterEnabled} onPress={() => { setHeaterSetpoint(p.v); sendRaw(`SETPOINT:${p.v}`); }}
+                <TouchableOpacity key={p.v} disabled={!heaterEnabled} onPress={() => { handleSetpointChangeWithTracking(p.v - heaterSetpoint); sendRaw(`SETPOINT:${p.v}`); }}
                   style={[s.quickChip, heaterSetpoint === p.v && heaterEnabled && { backgroundColor: '#FFF7ED', borderColor: T.amber }]}>
                   <Text style={[s.quickChipText, heaterSetpoint === p.v && heaterEnabled && { color: T.amber, fontWeight: '800' }]}>{p.l}</Text>
                 </TouchableOpacity>
@@ -894,19 +1109,37 @@ export default function SessionScreen() {
             <Text style={s.deviceSub} numberOfLines={1}>
               {isConnected
                 ? `${connectedDevice?.name ?? 'BLE'} · ${currentTemp.toFixed(1)}°C · ${currentPosition}`
-                : 'Tap to pair your HerComfort device'}
+                : 'Pair belt or use simulator to test'}
             </Text>
           </View>
-          <TouchableOpacity
-            onPress={() => router.push('/ble-device' as any)}
-            style={[s.connectBtn, isConnected && { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', borderWidth: 1 }]}
-            activeOpacity={0.8}
-          >
-            <Text style={[s.connectBtnText, isConnected && { color: T.green }]}>
-              {isConnected ? 'Connected' : 'Connect'}
-            </Text>
-            <Feather name="chevron-right" size={13} color={isConnected ? T.green : '#FFF'} style={{ marginLeft: 2 }} />
-          </TouchableOpacity>
+          {!isConnected ? (
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <TouchableOpacity
+                onPress={startDemo}
+                style={[s.connectBtn, { backgroundColor: '#FDF2F8', borderColor: '#FCE7F3', borderWidth: 1 }]}
+                activeOpacity={0.8}
+              >
+                <Text style={[s.connectBtnText, { color: T.pink, fontWeight: '800' }]}>Simulate</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => router.push('/ble-device' as any)}
+                style={s.connectBtn}
+                activeOpacity={0.8}
+              >
+                <Text style={s.connectBtnText}>Connect</Text>
+                <Feather name="chevron-right" size={13} color="#FFF" style={{ marginLeft: 2 }} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              onPress={() => router.push('/ble-device' as any)}
+              style={[s.connectBtn, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', borderWidth: 1 }]}
+              activeOpacity={0.8}
+            >
+              <Text style={[s.connectBtnText, { color: T.green }]}>Connected</Text>
+              <Feather name="chevron-right" size={13} color={T.green} style={{ marginLeft: 2 }} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Screen Title */}
@@ -1039,6 +1272,130 @@ export default function SessionScreen() {
             })}
           </View>
         </View>
+
+        {/* AI Prescription Card */}
+        {(aiLoading || aiPrescription) && (
+          <View style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 20,
+            borderWidth: 1.5,
+            borderColor: '#FBCFE8',
+            padding: 18,
+            marginBottom: 14,
+            shadowColor: '#E84EA1',
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 3,
+          }}>
+            {/* Card Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+              <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#FDF2F8', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#FCE7F3' }}>
+                <MaterialCommunityIcons name="brain" size={20} color={T.pink} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={{ fontSize: 14, fontWeight: '900', color: '#0F172A', letterSpacing: 0.2 }}>AI Therapy Prescription</Text>
+                <Text style={{ fontSize: 11, color: '#64748B', marginTop: 1 }}>
+                  {aiAudit?.modelVersion ?? 'preset-scorer-v1.0'} · {aiAudit?.inferenceLatencyMs ?? '—'}ms
+                </Text>
+              </View>
+              {aiApplied && (
+                <View style={{ backgroundColor: '#ECFDF5', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1, borderColor: '#A7F3D0' }}>
+                  <Text style={{ fontSize: 10, fontWeight: '800', color: '#059669' }}>APPLIED</Text>
+                </View>
+              )}
+            </View>
+
+            {aiLoading ? (
+              <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+                <ActivityIndicator color={T.pink} size="small" />
+                <Text style={{ fontSize: 12, color: '#94A3B8', marginTop: 8 }}>Generating prescription...</Text>
+              </View>
+            ) : aiPrescription ? (
+              <>
+                {/* Side-by-side comparison: AI vs Rule-based */}
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                  {/* AI Column */}
+                  <View style={{ flex: 1, backgroundColor: '#FFF0F8', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#FCE7F3' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+                      <MaterialCommunityIcons name="brain" size={13} color={T.pink} />
+                      <Text style={{ fontSize: 10, fontWeight: '800', color: T.pink, letterSpacing: 0.5 }}>AI MODEL</Text>
+                    </View>
+                    <Text style={{ fontSize: 13, fontWeight: '900', color: '#0F172A' }}>{aiPrescription.presetName}</Text>
+                    <Text style={{ fontSize: 10, color: '#64748B', marginTop: 2, lineHeight: 14 }}>{aiPrescription.description}</Text>
+                    <View style={{ marginTop: 10, gap: 4 }}>
+                      {[
+                        { icon: 'thermometer', label: `${aiPrescription.targetTemp}°C`, color: '#DC2626' },
+                        { icon: 'vibrate',     label: `${aiPrescription.vibrationMode} · ${aiPrescription.vibrationSpeed}%`, color: T.pink },
+                        { icon: 'clock-outline', label: `${aiPrescription.durationMin} min`, color: T.purple },
+                      ].map(item => (
+                        <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                          <MaterialCommunityIcons name={item.icon as any} size={12} color={item.color} />
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#334155' }}>{item.label}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    {aiAudit?.predictedDeltaPain && (
+                      <View style={{ marginTop: 8, backgroundColor: '#FDF2F8', borderRadius: 8, padding: 6, alignItems: 'center' }}>
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: '#9D174D' }}>PREDICTED RELIEF</Text>
+                        <Text style={{ fontSize: 15, fontFamily: 'monospace', fontWeight: '900', color: T.pink }}>-{aiAudit.predictedDeltaPain.toFixed(1)} pts</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Rule-Based Column */}
+                  {ruleBasedRx && (
+                    <View style={{ flex: 1, backgroundColor: '#F8FAFC', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+                        <MaterialCommunityIcons name="cog-outline" size={13} color='#64748B' />
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#64748B', letterSpacing: 0.5 }}>RULE-BASED</Text>
+                      </View>
+                      <Text style={{ fontSize: 13, fontWeight: '900', color: '#0F172A' }}>{ruleBasedRx.presetName}</Text>
+                      <Text style={{ fontSize: 10, color: '#64748B', marginTop: 2, lineHeight: 14 }}>{ruleBasedRx.description}</Text>
+                      <View style={{ marginTop: 10, gap: 4 }}>
+                        {[
+                          { icon: 'thermometer', label: `${ruleBasedRx.targetTemp}°C`, color: '#94A3B8' },
+                          { icon: 'vibrate',     label: `${ruleBasedRx.vibrationMode} · ${ruleBasedRx.vibrationSpeed}%`, color: '#94A3B8' },
+                          { icon: 'clock-outline', label: `${ruleBasedRx.durationMin} min`, color: '#94A3B8' },
+                        ].map(item => (
+                          <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                            <MaterialCommunityIcons name={item.icon as any} size={12} color={item.color} />
+                            <Text style={{ fontSize: 11, fontWeight: '600', color: '#64748B' }}>{item.label}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+                {/* Disclaimer */}
+                <View style={{ backgroundColor: '#FFFBEB', borderRadius: 10, padding: 10, flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 12 }}>
+                  <MaterialCommunityIcons name="alert-circle-outline" size={14} color='#D97706' />
+                  <Text style={{ fontSize: 10, color: '#92400E', flex: 1, lineHeight: 14 }}>
+                    Engineering prototype — synthetic cold-start prior. Not clinically validated. Consult a healthcare provider for medical advice.
+                  </Text>
+                </View>
+
+                {/* Apply Button */}
+                {!aiApplied ? (
+                  <TouchableOpacity
+                    onPress={applyAIPrescription}
+                    style={{ backgroundColor: T.pink, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                    activeOpacity={0.85}
+                  >
+                    <MaterialCommunityIcons name="check-circle" size={18} color="#FFF" />
+                    <Text style={{ color: '#FFF', fontWeight: '800', fontSize: 14 }}>Apply AI Prescription</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={{ backgroundColor: '#ECFDF5', borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <MaterialCommunityIcons name="check-circle" size={18} color='#059669' />
+                    <Text style={{ color: '#059669', fontWeight: '800', fontSize: 13 }}>AI settings applied — ready to start</Text>
+                  </View>
+                )}
+              </>
+            ) : null}
+          </View>
+        )}
 
         {/* Start Session CTA Button */}
         <TouchableOpacity

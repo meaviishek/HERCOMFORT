@@ -21,7 +21,7 @@ const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, demoLogin } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -176,6 +176,16 @@ export default function LoginScreen() {
               ) : (
                 <Text className="text-white font-bold text-lg">Sign In</Text>
               )}
+            </Pressable>
+
+            {/* Offline Local Demo Testing Bypass */}
+            <Pressable
+              onPress={demoLogin}
+              className="py-[14px] rounded-xl items-center mt-3 border border-pink-200 bg-pink-50 active:opacity-80"
+            >
+              <Text style={{ color: T.pink.action }} className="font-bold text-base">
+                ✨ Explore App in Demo Mode
+              </Text>
             </Pressable>
           </View>
 

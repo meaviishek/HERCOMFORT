@@ -430,6 +430,7 @@ function AuditModal({ session, onClose }: { session: SessionRecord | null; onClo
             <Text style={ms.sectionTitle}>TELEMETRY PARAMETERS</Text>
             <View style={{ backgroundColor: T.canvas, borderRadius: 12, borderWidth: 1, borderColor: T.border, marginBottom: 12, overflow: 'hidden' }}>
               {[
+                { l: 'Protocol Source', v: session.settingSource === 'user_modified' ? 'User Modified (Adjusted)' : session.settingSource === 'user_manual' ? 'Manual Session' : 'AI Prescribed' },
                 { l: 'Thermal Regulation', v: `Avg ${session.avgTemp?.toFixed(1)}°C / Max ${session.maxTemp?.toFixed(1)}°C` },
                 { l: 'Heater Setpoint', v: `${session.targetTemp}°C` },
                 { l: 'Motor Mode', v: `${session.vibMode} · ${session.vibIntensity}%` },
@@ -649,6 +650,22 @@ export default function HistoryScreen() {
 
                   {/* Pills row 1 */}
                   <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                    <View style={[hs.pill, {
+                      backgroundColor: s.settingSource === 'user_modified' ? '#FFFBEB' : s.settingSource === 'user_manual' ? '#F1F5F9' : '#FCE7F3',
+                      borderColor: s.settingSource === 'user_modified' ? '#FDE68A' : s.settingSource === 'user_manual' ? '#CBD5E1' : '#FBCFE8',
+                    }]}>
+                      <MaterialCommunityIcons
+                        name={s.settingSource === 'user_modified' ? 'tune' : s.settingSource === 'user_manual' ? 'hand-back-right' : 'brain'}
+                        size={10}
+                        color={s.settingSource === 'user_modified' ? T.amber : s.settingSource === 'user_manual' ? T.sub : T.pink}
+                      />
+                      <Text style={[hs.pillText, {
+                        color: s.settingSource === 'user_modified' ? T.amber : s.settingSource === 'user_manual' ? T.sub : T.pink,
+                        fontWeight: '800',
+                      }]}>
+                        {s.settingSource === 'user_modified' ? 'USER MODIFIED' : s.settingSource === 'user_manual' ? 'MANUAL' : 'AI PRESCRIBED'}
+                      </Text>
+                    </View>
                     <View style={hs.pill}>
                       <MaterialCommunityIcons name="thermometer" size={10} color={T.amber} />
                       <Text style={[hs.pillText, { color: T.amber }]}>{s.avgTemp?.toFixed(1) ?? '--'}°C</Text>

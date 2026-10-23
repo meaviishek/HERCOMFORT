@@ -35,6 +35,11 @@ yarn-error.*
 .env.local
 .env*.local
 
+# archives
+*.zip
+*.tar
+*.tar.gz
+
 # typescript
 *.tsbuildinfo
 
@@ -44,3 +49,16 @@ app-example
 /ios
 /android
 android-backup/
+
+# ── Pilot study data (never commit — contains de-identified participant data) ──
+pilot_data/
+tools/data/
+**/participant_map.json
+
+# ── Python cache ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+
+# ── Backend secrets ────────────────────────────────────────────────────────────
+backend/.env
+backend/.env.local

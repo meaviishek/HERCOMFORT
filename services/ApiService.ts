@@ -226,7 +226,18 @@ async function getRemoteSessions(params?: { userId?: string; deviceId?: string }
   }
 }
 
+/**
+ * Generic authenticated POST to any API endpoint.
+ * Used by features like the AI therapy prescription.
+ */
+async function post(path: string, body: Record<string, any>): Promise<any> {
+  const url = path.startsWith('/api') ? path : `/api${path}`;
+  const res = await api.post(url, body);
+  return res.data;
+}
+
 export default {
+  post,
   postReading,
   postBatchReadings,
   saveSessionRecord,

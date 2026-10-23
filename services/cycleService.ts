@@ -76,7 +76,9 @@ async function getSummary(): Promise<CycleSummary> {
       return res.data.data;
     }
   } catch (err: any) {
-    console.warn("[CycleService] getSummary fallback:", err?.message || err);
+    if (err?.response?.status !== 401) {
+      console.warn("[CycleService] getSummary fallback:", err?.message || err);
+    }
     try {
       const cached = await AsyncStorage.getItem(CYCLE_SUMMARY_KEY);
       if (cached) return JSON.parse(cached);
@@ -140,7 +142,9 @@ async function getHistory(
       return res.data.data;
     }
   } catch (err: any) {
-    console.warn("[CycleService] getHistory fallback:", err?.message || err);
+    if (err?.response?.status !== 401) {
+      console.warn("[CycleService] getHistory fallback:", err?.message || err);
+    }
     try {
       const cached = await AsyncStorage.getItem(CYCLE_HISTORY_KEY);
       if (cached) return JSON.parse(cached);
@@ -164,7 +168,9 @@ async function getCalendarData(
       return res.data.data;
     }
   } catch (err: any) {
-    console.warn("[CycleService] getCalendarData fallback:", err?.message || err);
+    if (err?.response?.status !== 401) {
+      console.warn("[CycleService] getCalendarData fallback:", err?.message || err);
+    }
     try {
       const cached = await AsyncStorage.getItem(cacheKey);
       if (cached) return JSON.parse(cached);

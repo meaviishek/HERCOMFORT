@@ -1,0 +1,13 @@
+{
+  "name": "hercomfort-ml",
+  "version": "1.0.0",
+  "description": "HerComfort AI/ML therapy scoring module",
+  "type": "module",
+  "scripts": {
+    "export-pilot": "node --experimental-specifier-resolution=node export_pilot_dataset.js",
+    "test-propensity": "node test_propensity.js"
+  },
+  "dependencies": {
+    "mongoose": "^9.11.2"
+  }
+}

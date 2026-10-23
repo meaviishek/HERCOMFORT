@@ -1,0 +1,165 @@
+{
+  "model_version": "preset-scorer-v1.0",
+  "model_type": "RandomForestRegressor (sklearn)",
+  "feature_columns": [
+    "pain_pre",
+    "emg",
+    "posture",
+    "cycle_day",
+    "stress",
+    "fatigue",
+    "took_med",
+    "mins_since_med"
+  ],
+  "scaler": {
+    "mean_": [
+      5.451524999999987,
+      50.50179999999998,
+      1.0015,
+      14.39625,
+      4.9509499999999935,
+      5.023400000000007,
+      0.25825,
+      32.33425
+    ],
+    "scale_": [
+      2.6124485974608143,
+      25.729926967638292,
+      0.82340618773483,
+      8.043583525860864,
+      2.9122077703178997,
+      2.8769284732158344,
+      0.43767218040447725,
+      64.33717453337182
+    ]
+  },
+  "feature_importances": {
+    "pain_pre": 0.8516865623731464,
+    "emg": 0.04796443257666308,
+    "posture": 0.04470749588378531,
+    "cycle_day": 0.011976911947390608,
+    "stress": 0.014461685021842394,
+    "fatigue": 0.014495897482755168,
+    "took_med": 0.0025426767089062837,
+    "mins_since_med": 0.012164338005510691
+  },
+  "preset_stats": {
+    "P07": {
+      "mean_delta_pain": 3.7619,
+      "std_delta_pain": 1.2361,
+      "count": 485
+    },
+    "P09": {
+      "mean_delta_pain": 4.2881,
+      "std_delta_pain": 1.0761,
+      "count": 590
+    },
+    "P12": {
+      "mean_delta_pain": 0.6498,
+      "std_delta_pain": 0.6593,
+      "count": 323
+    },
+    "P01": {
+      "mean_delta_pain": 0.7505,
+      "std_delta_pain": 0.7053,
+      "count": 477
+    },
+    "P05": {
+      "mean_delta_pain": 2.073,
+      "std_delta_pain": 0.8609,
+      "count": 363
+    },
+    "P06": {
+      "mean_delta_pain": 2.5292,
+      "std_delta_pain": 1.1731,
+      "count": 801
+    },
+    "P04": {
+      "mean_delta_pain": 1.8033,
+      "std_delta_pain": 0.8082,
+      "count": 398
+    },
+    "P10": {
+      "mean_delta_pain": 5.7029,
+      "std_delta_pain": 1.1973,
+      "count": 478
+    },
+    "P11": {
+      "mean_delta_pain": 0.695,
+      "std_delta_pain": 0.6674,
+      "count": 200
+    },
+    "P02": {
+      "mean_delta_pain": 0.7055,
+      "std_delta_pain": 0.652,
+      "count": 289
+    },
+    "P08": {
+      "mean_delta_pain": 5.2568,
+      "std_delta_pain": 1.1381,
+      "count": 433
+    },
+    "P03": {
+      "mean_delta_pain": 1.2485,
+      "std_delta_pain": 0.7477,
+      "count": 163
+    }
+  },
+  "training_meta": {
+    "n_samples": 5000,
+    "n_train": 4000,
+    "n_test": 1000,
+    "train_time_seconds": 0.206,
+    "dataset": "synthetic_prototype_dataset.csv",
+    "disclaimer": "Synthetic cold-start prior. Not real patient data."
+  },
+  "evaluation": {
+    "mae_on_delta_pain": 0.6939,
+    "r2_on_delta_pain": 0.8109,
+    "note": "Metrics reflect fit to synthetic heuristic data, not clinical efficacy."
+  },
+  "feature_weights": {
+    "pain_pre": 0.8516865623731464,
+    "emg": 0.04796443257666308,
+    "posture": 0.04470749588378531,
+    "cycle_day": 0.011976911947390608,
+    "stress": 0.014461685021842394,
+    "fatigue": 0.014495897482755168,
+    "took_med": -0.03,
+    "mins_since_med": 0.012164338005510691
+  },
+  "feature_norms": {
+    "pain_pre": [
+      0.0,
+      10.0
+    ],
+    "emg": [
+      0.0,
+      100.0
+    ],
+    "posture": [
+      0.0,
+      2.0
+    ],
+    "cycle_day": [
+      1.0,
+      28.0
+    ],
+    "stress": [
+      0.0,
+      10.0
+    ],
+    "fatigue": [
+      0.0,
+      10.0
+    ],
+    "took_med": [
+      0.0,
+      1.0
+    ],
+    "mins_since_med": [
+      0.0,
+      240.0
+    ]
+  }
+}
