@@ -525,6 +525,73 @@ async function runPilotTrialModeTests() {
       assert(p4Doc.nextSessionOrder === 1, `expected nextSessionOrder=1, got ${p4Doc.nextSessionOrder}`);
     });
 
+    // ── Test 14: Concurrent / Duplicate Session Start Rejection (409 duplicateSessionId) ─
+    await test('Duplicate Request: Starting a session with duplicate sessionId returns 409', async () => {
+      const { user: user5, token: token5 } = await createTestUser('p5_concurrent');
+      await req(server, {
+        method: 'POST', path: '/api/pilot/enroll',
+        body: { consentVersion: '1.0.0', age: 26, screeningPregnancyNegative: true, screeningNoPacemaker: true, screeningNoSkinCondition: true },
+        token: token5,
+      });
+
+      const sessId = `pilot_start_sess_${Date.now()}`;
+
+      // First start succeeds
+      const firstStart = await req(server, {
+        method: 'POST', path: '/api/pilot/session/start',
+        body: { sessionId: sessId, context: { painPre: 6 } }, token: token5,
+      });
+      assert(firstStart.status === 201, `expected 201, got ${firstStart.status}`);
+
+      // Concurrent second start with same sessionId must be rejected with 409 duplicateSessionId
+      const secondStart = await req(server, {
+        method: 'POST', path: '/api/pilot/session/start',
+        body: { sessionId: sessId, context: { painPre: 6 } }, token: token5,
+      });
+      assert(secondStart.status === 409, `expected 409 duplicateSessionId, got ${secondStart.status}`);
+      assert(secondStart.body.error === 'duplicateSessionId', `expected duplicateSessionId error, got ${secondStart.body.error}`);
+      assert(secondStart.body.logId === firstStart.body.logId, 'expected existing active logId to be returned');
+    });
+
+    // ── Test 15: Duplicate sessionId Rejection (409 duplicateSessionId) ───────
+    await test('Duplicate Request: /prescribe with duplicate sessionId returns 409', async () => {
+      const { user: user6, token: token6 } = await createTestUser('p6_dupsess');
+      const enrollRes = await req(server, {
+        method: 'POST', path: '/api/pilot/enroll',
+        body: { consentVersion: '1.0.0', age: 30, screeningPregnancyNegative: true, screeningNoPacemaker: true, screeningNoSkinCondition: true },
+        token: token6,
+      });
+      const p6Id = enrollRes.body.participantId;
+      const dupSessionId = `dup_sess_${Date.now()}`;
+
+      // First prescribe with dupSessionId succeeds
+      const firstRx = await req(server, {
+        method: 'POST', path: '/api/therapy/prescribe',
+        body: {
+          context: { painPre: 7 },
+          participantId: p6Id,
+          sessionOrder: 1,
+          sessionId: dupSessionId,
+        },
+        token: token6,
+      });
+      assert(firstRx.status === 200, `expected 200, got ${firstRx.status}`);
+
+      // Second prescribe with same sessionId must return 409 duplicateSessionId
+      const secondRx = await req(server, {
+        method: 'POST', path: '/api/therapy/prescribe',
+        body: {
+          context: { painPre: 7 },
+          participantId: p6Id,
+          sessionOrder: 1,
+          sessionId: dupSessionId,
+        },
+        token: token6,
+      });
+      assert(secondRx.status === 409, `expected 409 duplicateSessionId, got ${secondRx.status}`);
+      assert(secondRx.body.error === 'duplicateSessionId', `expected duplicateSessionId, got ${secondRx.body.error}`);
+    });
+
   } finally {
     await mongoose.disconnect();
     if (memServer) await memServer.stop();

@@ -59,6 +59,10 @@ tools/data/
 __pycache__/
 *.py[cod]
 
+# ── Test scratch artifacts ───────────────────────────────────────────────────
+__scratch__/
+**/__scratch__/
+
 # ── Backend secrets ────────────────────────────────────────────────────────────
 backend/.env
 backend/.env.local

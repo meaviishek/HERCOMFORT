@@ -44,6 +44,7 @@ export interface BluetoothContextValue {
   disconnect: () => Promise<void>;
   startDemo: () => void;
   stopDemo: () => void;
+  startBridgeMode: () => void;
   sendCommand: (commandObj: Record<string, unknown>) => Promise<void>;
   showToast: (type: ToastMessage['type'], message: string) => void;
 }
@@ -82,6 +83,7 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
 
   const streamingRef = useRef(false);
   const demoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bridgeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const demoTickRef = useRef(0);
 
   // ─── Toast helper ──────────────────────────────────────────────────────────
@@ -138,6 +140,7 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
           motorSpeed: raw.motorSpeed != null ? parseInt(raw.motorSpeed, 10) : undefined,
           heaterSetpoint: raw.heaterSetpoint != null ? parseFloat(raw.heaterSetpoint) : undefined,
           timestamp: raw.timestamp ?? Date.now(),
+          espTimestamp: raw.espTimestamp != null ? Number(raw.espTimestamp) : (raw.esp_timestamp != null ? Number(raw.esp_timestamp) : undefined),
         };
         setLiveData(normalized);
         setPacketCount((c) => c + 1);
@@ -384,11 +387,43 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
     showToast('info', 'Demo disconnected');
   }, [showToast]);
 
+  // ─── Bridge Mode (Relay from PC BLE) ───────────────────────────────────────
+  const startBridgeMode = useCallback(() => {
+    if (demoTimerRef.current) clearInterval(demoTimerRef.current);
+    if (bridgeTimerRef.current) clearInterval(bridgeTimerRef.current);
+    setIsDemo(false);
+    setConnectionStatus(CONNECTION_STATUS.CONNECTED);
+    setConnectedDevice({
+      name: 'Her Comfort Band (PC Bridge)',
+      address: 'B4:3A:45:8A:2C:E6',
+      id: 'B4:3A:45:8A:2C:E6',
+    } as any);
+    showToast('success', 'Connected to Her Comfort Band via PC Bridge!');
+
+    bridgeTimerRef.current = setInterval(async () => {
+      try {
+        const latest = await ApiService.getLatestReading('HER-COMFORT-BAND');
+        if (latest) {
+          setLiveData(latest);
+          setPacketCount((c) => c + 1);
+          setHistory((prev) => {
+            const next = [...prev, latest];
+            return next.length > 60 ? next.slice(-60) : next;
+          });
+        }
+      } catch {}
+    }, 600);
+  }, [showToast]);
+
   // ─── Disconnect ────────────────────────────────────────────────────────────
   const disconnect = useCallback(async () => {
     if (isDemo) {
       stopDemo();
       return;
+    }
+    if (bridgeTimerRef.current) {
+      clearInterval(bridgeTimerRef.current);
+      bridgeTimerRef.current = null;
     }
     try {
       streamingRef.current = false;
@@ -463,6 +498,7 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
       if (demoTimerRef.current) clearInterval(demoTimerRef.current);
+      if (bridgeTimerRef.current) clearInterval(bridgeTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -485,6 +521,7 @@ export function BluetoothProvider({ children }: { children: React.ReactNode }) {
     disconnect,
     startDemo,
     stopDemo,
+    startBridgeMode,
     sendCommand,
     showToast,
   };

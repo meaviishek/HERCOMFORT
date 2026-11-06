@@ -271,7 +271,7 @@ async function main() {
   const sessionIds = [...new Set(logs.map((l) => l.sessionId).filter(Boolean))];
   console.log(`📡  Fetching telemetry for ${sessionIds.length} sessions…`);
   const readings = await SensorReading.find({ sessionId: { $in: sessionIds } })
-    .sort({ sessionId: 1, receivedAt: 1 }).lean().exec();
+    .sort({ sessionId: 1, espTimestamp: 1, receivedAt: 1 }).lean().exec();
   console.log(`   ${readings.length} packets found.\n`);
 
   // Group by sessionId × windowType (with espTimestamp dedupe stopgap)
@@ -305,46 +305,119 @@ async function main() {
     console.log(`   ⚡ [Dedupe Stopgap] Filtered out ${dedupeCount} duplicate readings with matching espTimestamp.\n`);
   }
 
-  // ── Build sessions.csv ─────────────────────────────────────────────────────
-  console.log('🔨  Building sessions.csv…');
-  const sessionRows = logs.map((log) => ({
-    participantId:              log._pid,
-    sessionId:                  log.sessionId ?? '',
-    logId:                      String(log._id),
-    createdAt:                  log.createdAt ? new Date(log.createdAt).toISOString() : '',
-    // Arm allocation
-    trialArm:                   log.pilot?.trialArm ?? '',
-    sessionOrderForParticipant: log.pilot?.sessionOrderForParticipant ?? '',
-    propensity:                 log.mlAudit?.propensity ?? '',
-    settingSource:              log.mlAudit?.settingSource ?? '',
-    wasClamped:                 log.mlAudit?.wasClamped ? 1 : 0,
-    // Pre-session baseline
-    painPre_tMinus5:            log.pilot?.painPre_tMinus5 ?? log.context?.painPre ?? '',
-    painPre_t0:                 log.pilot?.painPre_t0 ?? '',
-    painPre_baseline:           log.pilot?.painPre_baseline ?? log.context?.painPre ?? '',
-    cycleDay:                   log.context?.cycleDay ?? '',
-    tookMedication:             log.context?.tookMedication ? 1 : 0,
-    posture:                    log.context?.posture ?? '',
-    // PRIMARY OUTCOME
-    painPost_15min:             log.pilot?.painPost_15min ?? '',
-    painPostConfirmed_15min:    log.pilot?.painPostConfirmed_15min ? 1 : 0,
-    deltaPain_15min:            log.pilot?.deltaPain_15min ?? '',
-    // Secondary outcome
-    painPost_0min:              log.outcome?.painPost ?? '',
-    deltaPain_0min:             log.pilot?.deltaPain_0min ?? log.outcome?.deltaPain ?? '',
-    // Adverse events (mandatory safety)
-    adverseEvent:               log.pilot?.adverseEvent ? 1 : 0,
-    adverseCategory:            log.pilot?.adverseCategory ?? 'NONE',
-    adverseSeverity:            log.pilot?.adverseSeverity ?? 'NONE',
-    earlyTermination:           log.pilot?.earlyTermination ? 1 : 0,
-    earlyTerminationReason:     log.pilot?.earlyTerminationReason ?? 'NONE',
-    // Device provenance
-    firmwareVersion:            log.pilot?.firmwareVersion ?? '',
-    appVersion:                 log.pilot?.appVersion ?? '',
-    // Session feasibility
-    actualDurationSeconds:      log.outcome?.actualDurationSeconds ?? '',
-    completionStatus:           log.outcome?.completionStatus ?? '',
-  }));
+  // ── Build sessions.csv with Data Quality Validation ────────────────────────
+  console.log('🔨  Building sessions.csv with quality validation…');
+  let validCount = 0;
+  let flaggedCount = 0;
+
+  const seenSessionIds = new Set();
+  const seenParticipantSessions = new Set();
+
+  const sessionRows = logs.map((log) => {
+    const sid = log.sessionId ?? '';
+    const wins = sid ? (bySession[sid] ?? {}) : {};
+    const allPackets = wins.ALL ?? [];
+    const prePackets = wins.PRE_BASELINE ?? [];
+
+    const issues = [];
+    if (!sid) {
+      issues.push('MISSING_SESSION_ID');
+    } else {
+      if (seenSessionIds.has(sid)) issues.push('DUPLICATE_SESSION_ID');
+      else seenSessionIds.add(sid);
+    }
+
+    // Participant + session order uniqueness check
+    const pid = log._pid;
+    const sOrder = log.pilot?.sessionOrderForParticipant;
+    if (pid && sOrder) {
+      const psKey = `${pid}_s${sOrder}`;
+      if (seenParticipantSessions.has(psKey)) issues.push('DUPLICATE_PARTICIPANT_SESSION_ORDER');
+      else seenParticipantSessions.add(psKey);
+    }
+
+    // Timestamp validation (sanity check: must be a parseable ISO date, not in future, not prior to 2024)
+    const logTime = log.createdAt ? new Date(log.createdAt).getTime() : NaN;
+    if (isNaN(logTime) || logTime > Date.now() + 60000 || logTime < 1704067200000) {
+      issues.push('INVALID_TIMESTAMP');
+    }
+
+    if (allPackets.length === 0) issues.push('UNLINKED_TELEMETRY');
+    else if (prePackets.length === 0) issues.push('MISSING_PRE_BASELINE_WINDOW');
+
+    // Require valid known trial arm
+    const VALID_ARMS = ['ARM_HEAT_ONLY', 'ARM_HEAT_PULSE', 'ARM_HEAT_HARMONIC'];
+    const rawArm = log.pilot?.trialArm ?? log.preset?.presetId ?? '';
+    if (!VALID_ARMS.includes(rawArm)) issues.push('INVALID_TRIAL_ARM');
+
+    const pPre = log.pilot?.painPre_baseline ?? log.context?.painPre;
+    if (pPre == null || isNaN(pPre) || pPre < 0 || pPre > 10) issues.push('INVALID_PAIN_PRE');
+
+    const pPost15 = log.pilot?.painPost_15min ?? log.outcome?.painPost;
+    if (pPost15 == null || isNaN(pPost15) || pPost15 < 0 || pPost15 > 10) issues.push('INVALID_PAIN_POST');
+
+    // Require confirmed 15-min outcome for pilot sessions
+    const isPilotSession = !!log.pilot?.trialArm;
+    const isOutcomeConfirmed = isPilotSession
+      ? log.pilot?.painPostConfirmed_15min === true
+      : log.outcome?.painPostConfirmed === true;
+    if (!isOutcomeConfirmed) issues.push('UNCONFIRMED_15MIN_OUTCOME');
+
+    // Validate stored delta vs recomputed — flag large discrepancy (>0.1)
+    const computedDelta = (pPre != null && pPost15 != null) ? r2(pPre - pPost15) : null;
+    const storedDelta = log.pilot?.deltaPain_15min;
+    if (computedDelta != null && storedDelta != null &&
+        Math.abs(Number(storedDelta) - computedDelta) > 0.1) {
+      issues.push('DELTA_PAIN_DISCREPANCY');
+    }
+    const deltaPain15 = computedDelta ?? storedDelta ?? '';
+    const isQualityValid = issues.length === 0;
+
+    if (isQualityValid) validCount++;
+    else flaggedCount++;
+
+    return {
+      participantId:              log._pid,
+      sessionId:                  sid,
+      logId:                      String(log._id),
+      createdAt:                  !isNaN(logTime) ? new Date(logTime).toISOString() : '',
+      // Quality gate
+      dataQualityStatus:          isQualityValid ? 'VALID' : 'FLAGGED',
+      dataQualityNotes:           issues.join(';') || 'CLEAN',
+      // Arm allocation
+      trialArm:                   log.pilot?.trialArm ?? log.preset?.presetId ?? '',
+      sessionOrderForParticipant: log.pilot?.sessionOrderForParticipant ?? '',
+      propensity:                 log.mlAudit?.propensity ?? '',
+      settingSource:              log.mlAudit?.settingSource ?? '',
+      wasClamped:                 log.mlAudit?.wasClamped ? 1 : 0,
+      // Pre-session baseline
+      painPre_tMinus5:            log.pilot?.painPre_tMinus5 ?? log.context?.painPre ?? '',
+      painPre_t0:                 log.pilot?.painPre_t0 ?? '',
+      painPre_baseline:           pPre ?? '',
+      cycleDay:                   log.context?.cycleDay ?? '',
+      tookMedication:             log.context?.tookMedication ? 1 : 0,
+      posture:                    log.context?.posture ?? '',
+      // PRIMARY OUTCOME
+      painPost_15min:             pPost15 ?? '',
+      painPostConfirmed_15min:    log.pilot?.painPostConfirmed_15min ? 1 : (log.outcome?.painPostConfirmed ? 1 : 0),
+      deltaPain_15min:            deltaPain15,
+      // Secondary outcome
+      painPost_0min:              log.outcome?.painPost ?? '',
+      deltaPain_0min:             log.pilot?.deltaPain_0min ?? log.outcome?.deltaPain ?? '',
+      // Adverse events (mandatory safety)
+      adverseEvent:               log.pilot?.adverseEvent ? 1 : 0,
+      adverseCategory:            log.pilot?.adverseCategory ?? 'NONE',
+      adverseSeverity:            log.pilot?.adverseSeverity ?? 'NONE',
+      earlyTermination:           log.pilot?.earlyTermination ? 1 : 0,
+      earlyTerminationReason:     log.pilot?.earlyTerminationReason ?? 'NONE',
+      // Device provenance
+      firmwareVersion:            log.pilot?.firmwareVersion ?? '',
+      appVersion:                 log.pilot?.appVersion ?? '',
+      // Session feasibility
+      actualDurationSeconds:      log.outcome?.actualDurationSeconds ?? '',
+      completionStatus:           log.outcome?.completionStatus ?? '',
+    };
+  });
 
   // ── Build telemetry.csv ────────────────────────────────────────────────────
   console.log('🔨  Building telemetry.csv…');
@@ -376,7 +449,7 @@ async function main() {
     return {
       participantId:              log._pid,
       sessionId:                  sid ?? '',
-      trialArm:                   log.pilot?.trialArm ?? '',
+      trialArm:                   log.pilot?.trialArm ?? log.preset?.presetId ?? '',
       sessionOrderForParticipant: log.pilot?.sessionOrderForParticipant ?? '',
       propensity:                 log.mlAudit?.propensity ?? '',
       // Window packet counts
@@ -413,21 +486,88 @@ async function main() {
     };
   });
 
-  // ── Write CSVs ────────────────────────────────────────────────────────────
+  // ── Build Clean Unified Training Dataset ───────────────────────────────────
+  console.log('🔨  Building clean_training_dataset.csv for ML pipeline…');
+  const VALID_ARMS = ['ARM_HEAT_ONLY', 'ARM_HEAT_PULSE', 'ARM_HEAT_HARMONIC'];
+  const trainingRows = [];
+  const perArmValid = {};
+  const perArmMissingEmg = {};
+  for (let i = 0; i < logs.length; i++) {
+    const s = sessionRows[i];
+    const t = telemetryRows[i];
+    const log = logs[i];
+    if (s.dataQualityStatus !== 'VALID') continue;
+    // Double-check arm is valid (belt-and-suspenders after quality gate)
+    if (!VALID_ARMS.includes(s.trialArm)) continue;
+
+    const emgMissing = t.emg_pre_rms == null;
+    perArmValid[s.trialArm] = (perArmValid[s.trialArm] ?? 0) + 1;
+    if (emgMissing) perArmMissingEmg[s.trialArm] = (perArmMissingEmg[s.trialArm] ?? 0) + 1;
+
+    trainingRows.push({
+      participant_id:    s.participantId,
+      session_id:        s.sessionId,
+      trial_arm:         s.trialArm,
+      pain_pre_baseline: s.painPre_baseline,
+      // EMG: if missing, leave empty (train_model.py will mean-impute and log count)
+      emg_pre_rms:       emgMissing ? '' : t.emg_pre_rms,
+      cycle_day:         s.cycleDay !== '' ? s.cycleDay : '',
+      posture:           s.posture || 'UNKNOWN',
+      took_medication:   s.tookMedication,
+      target_temp:       log.preset?.targetTemp ?? 39.0,
+      vibration_mode:    log.preset?.vibrationMode ?? (s.trialArm === 'ARM_HEAT_PULSE' ? 'PULSE' : s.trialArm === 'ARM_HEAT_HARMONIC' ? 'HARMONIC' : 'OFF'),
+      vibration_speed:   log.preset?.vibrationSpeed ?? (s.trialArm === 'ARM_HEAT_ONLY' ? 0 : 80),
+      duration_min:      log.preset?.durationMin ?? 20,
+      delta_pain_15min:  s.deltaPain_15min,
+    });
+  }
+
+  // ── Write CSVs and Reports ────────────────────────────────────────────────
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   const sessPath  = path.join(OUT_DIR, 'sessions.csv');
   const telePath  = path.join(OUT_DIR, 'telemetry.csv');
+  const trainPath = path.join(OUT_DIR, 'clean_training_dataset.csv');
+  const rptPath   = path.join(OUT_DIR, 'dataset_validation_report.json');
   const mapPath   = path.join(OUT_DIR, 'participant_map.json');
 
-  fs.writeFileSync(sessPath, toCsv(sessionRows), 'utf-8');
-  fs.writeFileSync(telePath, toCsv(telemetryRows), 'utf-8');
-  fs.writeFileSync(mapPath,  JSON.stringify(Object.fromEntries(uidMap), null, 2), 'utf-8');
+  fs.writeFileSync(sessPath,  toCsv(sessionRows), 'utf-8');
+  fs.writeFileSync(telePath,  toCsv(telemetryRows), 'utf-8');
+  fs.writeFileSync(trainPath, toCsv(trainingRows), 'utf-8');
+  fs.writeFileSync(mapPath,   JSON.stringify(Object.fromEntries(uidMap), null, 2), 'utf-8');
+
+  const isSyntheticExport = Boolean(FORCE_SEED || !process.env.DATABASE_URL);
+  const validationReport = {
+    generatedAt: new Date().toISOString(),
+    datasetType: isSyntheticExport ? 'SYNTHETIC_DEMO' : 'REAL_PILOT',
+    isSynthetic: isSyntheticExport,
+    totalSessionsQueried: logs.length,
+    validSessions: validCount,
+    flaggedSessions: flaggedCount,
+    cleanTrainingRows: trainingRows.length,
+    uniqueParticipants: counter,
+    telemetryPacketsFound: readings.length,
+    deduplicatedDuplicates: dedupeCount,
+    exportDirectory: OUT_DIR,
+    per_arm_valid_rows: perArmValid,
+    per_arm_missing_emg_rows: perArmMissingEmg,
+    flagReasonCounts: sessionRows.reduce((acc, r) => {
+      if (r.dataQualityNotes && r.dataQualityNotes !== 'CLEAN') {
+        r.dataQualityNotes.split(';').forEach((reason) => {
+          acc[reason] = (acc[reason] ?? 0) + 1;
+        });
+      }
+      return acc;
+    }, {}),
+  };
+  fs.writeFileSync(rptPath, JSON.stringify(validationReport, null, 2), 'utf-8');
 
   console.log(`\n✅  Export complete:`);
-  console.log(`   sessions.csv   → ${sessPath}  (${sessionRows.length} rows)`);
-  console.log(`   telemetry.csv  → ${telePath}  (${telemetryRows.length} rows)`);
-  console.log(`   participant_map.json → ${mapPath}  ⚠️  CONFIDENTIAL — never share`);
+  console.log(`   sessions.csv               → ${sessPath}  (${sessionRows.length} rows)`);
+  console.log(`   telemetry.csv              → ${telePath}  (${telemetryRows.length} rows)`);
+  console.log(`   clean_training_dataset.csv → ${trainPath}  (${trainingRows.length} rows validated)`);
+  console.log(`   dataset_validation_report  → ${rptPath}`);
+  console.log(`   participant_map.json       → ${mapPath}  ⚠️  CONFIDENTIAL — never share`);
 
   // ── Preview first 3 rows ──────────────────────────────────────────────────
   if (sessionRows.length) {

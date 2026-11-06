@@ -122,6 +122,19 @@ router.post('/prescribe', authGuard, async (req, res, next) => {
       });
     }
 
+    // ── Duplicate sessionId guard ──────────────────────────────────────────
+    if (sessionId) {
+      const existingSession = await TherapyLog.findOne({ userId, sessionId });
+      if (existingSession) {
+        return res.status(409).json({
+          success: false,
+          error: 'duplicateSessionId',
+          message: `TherapyLog with sessionId '${sessionId}' already exists.`,
+          logId: existingSession._id,
+        });
+      }
+    }
+
     const safeContext = {
       painPre:                 parseFloatSafe(context.painPre),          // required, validated above
       emg:                     parseFloatSafe(context.emg, null),        // null = not available
@@ -308,9 +321,10 @@ router.post('/feedback', authGuard, async (req, res, next) => {
       settingSource,
       painPostConfirmed = false,
       sessionId,
-      // Pilot fields (optional; non-pilot sessions ignore these)
-      pilot: pilotFeedback = {},
+      // Pilot fields (can be in req.body.pilot or top-level req.body)
+      pilot: rawPilot,
     } = req.body;
+    const pilotFeedback = rawPilot || req.body;
 
     if (!logId) {
       return res.status(400).json({ success: false, message: 'logId is required' });
