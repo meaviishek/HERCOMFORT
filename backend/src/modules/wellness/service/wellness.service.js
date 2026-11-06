@@ -138,7 +138,7 @@ export async function addMedication(userId, data) {
 }
 
 export async function updateMedication(userId, medId, data) {
-  return Medication.findOneAndUpdate({ _id: medId, user: userId }, data, { new: true });
+  return Medication.findOneAndUpdate({ _id: medId, user: userId }, data, { returnDocument: 'after' });
 }
 
 export async function deleteMedication(userId, medId) {

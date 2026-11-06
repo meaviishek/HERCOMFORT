@@ -182,5 +182,16 @@ sensorReadingSchema.index({ sessionId: 1, receivedAt: -1 });
 sensorReadingSchema.index({ sessionId: 1, windowType: 1, receivedAt: 1 });
 // User modification audit
 sensorReadingSchema.index({ sessionId: 1, isUserModification: 1 });
+// Hardware frame deduplication constraint per session (prevents silent sample inflation)
+sensorReadingSchema.index(
+  { sessionId: 1, espTimestamp: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      sessionId: { $type: 'string' },
+      espTimestamp: { $type: 'number' },
+    },
+  }
+);
 
 export default mongoose.model('SensorReading', sensorReadingSchema);

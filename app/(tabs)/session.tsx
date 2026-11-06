@@ -41,6 +41,7 @@ import { useRouter } from 'expo-router';
 import { CONNECTION_STATUS, useBluetooth } from '../../context/BluetoothContext';
 import sessionService from '../../services/sessionService';
 import ApiService from '../../services/ApiService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const HERO_IMG = require('../../assets/images/comfort-hero.png');
 
@@ -283,55 +284,235 @@ function TelemetryGraph({ data }: { data: GraphPoint[] }) {
   );
 }
 
-// End Session Modal (Fix 2: explicit post-pain required)
+// End Session Modal (Fix 2 + Phase 2 Pilot Feedback)
+export interface SessionEndData {
+  painAfter: number;
+  painPostConfirmed: boolean;
+  painPost15?: number | null;
+  comfortScore?: number;
+  adverseEvent?: boolean;
+  adverseCategory?: string;
+  adverseSeverity?: string;
+  earlyTerminationReason?: string;
+}
+
 function EndSessionModal({
-  visible, onEnd, onCancel, painBefore, elapsedSecs,
-}: { visible: boolean; onEnd: (p: number, confirmed: boolean) => void; onCancel: () => void; painBefore: number; elapsedSecs: number }) {
-  // Fix 2: null means user has NOT selected yet; SAVE is blocked until they do.
+  visible, onEnd, onCancel, painBefore, elapsedSecs, isPilot = false,
+}: {
+  visible: boolean;
+  onEnd: (data: SessionEndData) => void;
+  onCancel: () => void;
+  painBefore: number;
+  elapsedSecs: number;
+  isPilot?: boolean;
+}) {
   const [painAfter, setPainAfter] = useState<number | null>(null);
+  const [painPost15, setPainPost15] = useState<number | null>(null);
+  const [comfortScore, setComfortScore] = useState<number>(4);
+  const [hasAdverse, setHasAdverse] = useState<boolean>(false);
+  const [adverseCategory, setAdverseCategory] = useState<string>('NONE');
+  const [adverseSeverity, setAdverseSeverity] = useState<string>('NONE');
+  const [earlyReason, setEarlyReason] = useState<string>('NONE');
+  const [showExtended, setShowExtended] = useState<boolean>(isPilot);
+
   const confirmed = painAfter !== null;
   const mins = Math.max(1, Math.round(elapsedSecs / 60));
+
+  const handleSave = () => {
+    if (!confirmed) return;
+    onEnd({
+      painAfter: painAfter!,
+      painPostConfirmed: true,
+      painPost15: painPost15,
+      comfortScore,
+      adverseEvent: hasAdverse,
+      adverseCategory: hasAdverse ? adverseCategory : 'NONE',
+      adverseSeverity: hasAdverse ? adverseSeverity : 'NONE',
+      earlyTerminationReason: earlyReason,
+    });
+  };
+
   return (
     <Modal visible={visible} transparent animationType="slide">
-      <View style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' }}>
-        <View style={{ backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: T.text }}>END RELIEF SESSION</Text>
-            <View style={{ backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-              <Text style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: '700', color: T.blue }}>{mins} MIN ({fmtTimer(elapsedSecs)})</Text>
-            </View>
-          </View>
-          {/* Fix 2: instruction banner — visible until user taps a number */}
-          <Text style={{ color: confirmed ? T.green : T.amber, fontSize: 12, fontWeight: '700', marginBottom: 10 }}>
-            {confirmed ? `✓ Post-session pain recorded: ${painAfter}/10` : '⚠ Tap your current pain level below to enable Save.'}
-          </Text>
-          <View style={{ flexDirection: 'row', backgroundColor: '#F8FAFC', borderRadius: 14, padding: 14, marginBottom: 18 }}>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ fontSize: 24, fontFamily: 'monospace', fontWeight: '900', color: T.red }}>{painBefore}/10</Text>
-              <Text style={{ fontSize: 10, fontWeight: '700', color: T.muted, marginTop: 2 }}>INITIAL PAIN</Text>
-            </View>
-            <Feather name="arrow-right" size={18} color={T.sub} />
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ fontSize: 24, fontFamily: 'monospace', fontWeight: '900', color: confirmed ? T.green : T.muted }}>
-                {confirmed ? `${painAfter}/10` : '—'}
+      <View style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' }}>
+        <View style={{ backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '90%' }}>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text style={{ fontSize: 18, fontWeight: '900', color: T.text, letterSpacing: -0.3 }}>
+                {isPilot ? '🔬 PILOT SESSION COMPLETION' : 'END RELIEF SESSION'}
               </Text>
-              <Text style={{ fontSize: 10, fontWeight: '700', color: T.muted, marginTop: 2 }}>CURRENT PAIN</Text>
+              <View style={{ backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                <Text style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: '700', color: T.blue }}>
+                  {mins} MIN ({fmtTimer(elapsedSecs)})
+                </Text>
+              </View>
             </View>
-          </View>
-          <PainScale value={painAfter ?? -1} onChange={setPainAfter} />
-          <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
-            <TouchableOpacity onPress={onCancel} style={{ flex: 1, borderRadius: 14, borderWidth: 1.5, borderColor: T.border, padding: 14, alignItems: 'center' }}>
-              <Text style={{ fontWeight: '700', color: T.sub, fontSize: 13 }}>RESUME</Text>
-            </TouchableOpacity>
-            {/* Fix 2: disabled until painAfter is explicitly tapped */}
-            <TouchableOpacity
-              onPress={() => confirmed && onEnd(painAfter!, true)}
-              disabled={!confirmed}
-              style={{ flex: 1, borderRadius: 14, backgroundColor: confirmed ? T.pink : '#CBD5E1', padding: 14, alignItems: 'center' }}
-            >
-              <Text style={{ fontWeight: '800', color: '#FFF', fontSize: 13 }}>SAVE SESSION</Text>
-            </TouchableOpacity>
-          </View>
+
+            {/* Instruction banner */}
+            <Text style={{ color: confirmed ? T.green : T.amber, fontSize: 12, fontWeight: '700', marginBottom: 10 }}>
+              {confirmed ? `✓ Immediate pain recorded: ${painAfter}/10` : '⚠ Tap your current pain level below to enable Save.'}
+            </Text>
+
+            {/* Pain Comparison Bar */}
+            <View style={{ flexDirection: 'row', backgroundColor: '#F8FAFC', borderRadius: 14, padding: 12, marginBottom: 14 }}>
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontSize: 22, fontFamily: 'monospace', fontWeight: '900', color: T.red }}>{painBefore}/10</Text>
+                <Text style={{ fontSize: 9.5, fontWeight: '700', color: T.muted, marginTop: 2 }}>INITIAL PAIN</Text>
+              </View>
+              <Feather name="arrow-right" size={18} color={T.sub} style={{ alignSelf: 'center' }} />
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontSize: 22, fontFamily: 'monospace', fontWeight: '900', color: confirmed ? T.green : T.muted }}>
+                  {confirmed ? `${painAfter}/10` : '—'}
+                </Text>
+                <Text style={{ fontSize: 9.5, fontWeight: '700', color: T.muted, marginTop: 2 }}>POST PAIN (T=0)</Text>
+              </View>
+            </View>
+
+            <PainScale value={painAfter ?? -1} onChange={setPainAfter} />
+
+            {/* Comfort Score Selector */}
+            <View style={{ marginTop: 14, padding: 12, backgroundColor: '#FAF5FF', borderRadius: 14, borderWidth: 1, borderColor: '#F3E8FF' }}>
+              <Text style={{ fontSize: 12, fontWeight: '800', color: T.purple, marginBottom: 6 }}>THERAPY COMFORT RATING</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 6 }}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <TouchableOpacity
+                    key={star}
+                    onPress={() => setComfortScore(star)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 8,
+                      borderRadius: 10,
+                      backgroundColor: comfortScore === star ? T.purple : '#FFF',
+                      borderWidth: 1,
+                      borderColor: comfortScore === star ? T.purple : '#E9D5FF',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: comfortScore === star ? '#FFF' : T.purple }}>
+                      {star}★
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Pilot / Extended Safety Section */}
+            <View style={{ marginTop: 12, padding: 12, backgroundColor: '#F8FAFC', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0' }}>
+              <TouchableOpacity
+                onPress={() => setShowExtended(!showExtended)}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MaterialCommunityIcons name="shield-alert-outline" size={16} color={hasAdverse ? T.red : T.sub} />
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: hasAdverse ? T.red : T.text }}>
+                    {isPilot ? 'Pilot Safety & Adverse Events (Required)' : 'Safety & Reaction Reporting'}
+                  </Text>
+                </View>
+                <Feather name={showExtended ? 'chevron-up' : 'chevron-down'} size={16} color={T.sub} />
+              </TouchableOpacity>
+
+              {showExtended && (
+                <View style={{ marginTop: 10, gap: 10 }}>
+                  {/* Adverse Event Toggle */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 11.5, color: T.sub, fontWeight: '600' }}>Any adverse reaction or discomfort?</Text>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <TouchableOpacity
+                        onPress={() => { setHasAdverse(false); setAdverseCategory('NONE'); setAdverseSeverity('NONE'); }}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 8,
+                          backgroundColor: !hasAdverse ? T.green : '#E2E8F0',
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: !hasAdverse ? '#FFF' : T.sub }}>No</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => { setHasAdverse(true); if (adverseCategory === 'NONE') setAdverseCategory('MILD_ERYTHEMA'); if (adverseSeverity === 'NONE') setAdverseSeverity('MILD'); }}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 8,
+                          backgroundColor: hasAdverse ? T.red : '#E2E8F0',
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: hasAdverse ? '#FFF' : T.sub }}>Yes</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {hasAdverse && (
+                    <View style={{ backgroundColor: '#FEF2F2', padding: 10, borderRadius: 10, gap: 8 }}>
+                      <Text style={{ fontSize: 10.5, fontWeight: '800', color: T.red }}>ADVERSE EVENT CATEGORY</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                        {['MILD_ERYTHEMA', 'SKIN_BURNING', 'NUMBNESS', 'NAUSEA', 'DIZZINESS', 'OTHER'].map((cat) => (
+                          <TouchableOpacity
+                            key={cat}
+                            onPress={() => setAdverseCategory(cat)}
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: 6,
+                              backgroundColor: adverseCategory === cat ? T.red : '#FFF',
+                              borderWidth: 1,
+                              borderColor: '#FCA5A5',
+                            }}
+                          >
+                            <Text style={{ fontSize: 9.5, fontWeight: '700', color: adverseCategory === cat ? '#FFF' : T.red }}>
+                              {cat.replace('_', ' ')}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+
+                      <Text style={{ fontSize: 10.5, fontWeight: '800', color: T.red, marginTop: 4 }}>SEVERITY</Text>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        {['MILD', 'MODERATE', 'SEVERE'].map((sev) => (
+                          <TouchableOpacity
+                            key={sev}
+                            onPress={() => setAdverseSeverity(sev)}
+                            style={{
+                              flex: 1,
+                              paddingVertical: 6,
+                              borderRadius: 6,
+                              backgroundColor: adverseSeverity === sev ? T.red : '#FFF',
+                              borderWidth: 1,
+                              borderColor: '#FCA5A5',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: adverseSeverity === sev ? '#FFF' : T.red }}>
+                              {sev}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      {adverseSeverity === 'MODERATE' || adverseSeverity === 'SEVERE' ? (
+                        <Text style={{ fontSize: 10, color: '#991B1B', fontWeight: '600' }}>
+                          ⚠️ Moderate or severe events will be flagged and temporarily suspend further sessions until supervisor review.
+                        </Text>
+                      ) : null}
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Action Buttons */}
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 18, marginBottom: 12 }}>
+              <TouchableOpacity onPress={onCancel} style={{ flex: 1, borderRadius: 14, borderWidth: 1.5, borderColor: T.border, padding: 14, alignItems: 'center' }}>
+                <Text style={{ fontWeight: '700', color: T.sub, fontSize: 13 }}>RESUME</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSave}
+                disabled={!confirmed}
+                style={{ flex: 1, borderRadius: 14, backgroundColor: confirmed ? T.pink : '#CBD5E1', padding: 14, alignItems: 'center' }}
+              >
+                <Text style={{ fontWeight: '800', color: '#FFF', fontSize: 13 }}>SAVE SESSION</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -396,6 +577,97 @@ export default function SessionScreen() {
   const [aiApplied,          setAiApplied]          = useState(false);
   const [aiAudit,            setAiAudit]            = useState<any>(null);
 
+  // ── Pilot Feasibility Study State ──────────────────────────────────────────
+  type PilotStatus = {
+    enrolled: boolean;
+    participantId?: string;
+    studyStatus?: 'ACTIVE' | 'SUSPENDED' | 'WITHDRAWN' | 'COMPLETED';
+    nextSessionOrder?: number;
+    nextArm?: string;
+    suspendedReason?: any;
+    completedSessions?: number;
+    trialArmSequence?: string[];
+  };
+  const [pilotStatus,       setPilotStatus]       = useState<PilotStatus | null>(null);
+  const [isPilotMode,       setIsPilotMode]       = useState(false);
+  const [tMinus5Pain,       setTMinus5Pain]       = useState<number | null>(null);
+  const [tMinus5Time,       setTMinus5Time]       = useState<string | null>(null);
+  const [showEnrollModal,   setShowEnrollModal]   = useState(false);
+  const [pilotAge,          setPilotAge]          = useState('24');
+  const [pilotScreenPreg,   setPilotScreenPreg]   = useState(true);
+  const [pilotScreenPace,   setPilotScreenPace]   = useState(true);
+  const [pilotScreenSkin,   setPilotScreenSkin]   = useState(true);
+  const [pilotConsent,      setPilotConsent]      = useState(true);
+  const [pilotSubmitting,   setPilotSubmitting]   = useState(false);
+
+  const fetchPilotStatus = useCallback(async () => {
+    try {
+      const res = await ApiService.get('/pilot/me');
+      if (res && res.enrolled) {
+        setPilotStatus(res);
+        setIsPilotMode(true);
+      }
+    } catch {
+      // Non-blocking: standard session mode remains active
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPilotStatus();
+  }, [fetchPilotStatus]);
+
+  const handleRecordTMinus5 = useCallback(() => {
+    setTMinus5Pain(painLevel);
+    const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setTMinus5Time(nowStr);
+    Alert.alert(
+      'T-5 min Baseline Logged',
+      `Pre-session baseline of ${painLevel}/10 recorded at ${nowStr}.\n\nPlease rest quietly for 5 minutes before initiating session.`
+    );
+  }, [painLevel]);
+
+  const handlePilotEnroll = useCallback(async () => {
+    if (!pilotConsent) {
+      Alert.alert('Consent Required', 'You must review and accept the pilot protocol.');
+      return;
+    }
+    const ageNum = parseInt(pilotAge, 10);
+    if (isNaN(ageNum) || ageNum < 18 || ageNum > 45) {
+      Alert.alert('Inclusion Criteria', 'Age must be between 18 and 45.');
+      return;
+    }
+    if (!pilotScreenPreg || !pilotScreenPace || !pilotScreenSkin) {
+      Alert.alert('Exclusion Criteria', 'Safety screening items must be confirmed negative.');
+      return;
+    }
+    setPilotSubmitting(true);
+    try {
+      const res = await ApiService.post('/pilot/enroll', {
+        consentVersion: '1.0.0',
+        age: ageNum,
+        screeningPregnancyNegative: pilotScreenPreg,
+        screeningNoPacemaker: pilotScreenPace,
+        screeningNoSkinCondition: pilotScreenSkin,
+        baselinePainSeverityTypical: painLevel,
+      });
+      if (res && res.enrolled) {
+        setPilotStatus(res);
+        setIsPilotMode(true);
+        setShowEnrollModal(false);
+        Alert.alert(
+          'Enrolled in Pilot Study',
+          `Assigned De-Identified ID: ${res.participantId}\nSession 1 of 3 ready to commence.`
+        );
+      } else {
+        Alert.alert('Enrollment Notice', res.message || 'Could not complete enrollment.');
+      }
+    } catch (err: any) {
+      Alert.alert('Enrollment Error', err?.response?.data?.message || 'Pilot enrollment failed.');
+    } finally {
+      setPilotSubmitting(false);
+    }
+  }, [pilotConsent, pilotAge, pilotScreenPreg, pilotScreenPace, pilotScreenSkin, painLevel]);
+
   const timerRef           = useRef<ReturnType<typeof setInterval> | null>(null);
   const batchTimerRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentSessionId   = useRef(`sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
@@ -406,6 +678,8 @@ export default function SessionScreen() {
   const batchBuffer        = useRef<any[]>([]);
   const goodPostureFrames  = useRef(0);
   const totalPostureFrames = useRef(0);
+  const lastLoggedEspTs    = useRef<number | null>(null);
+  const lastPacketRef      = useRef<any>(null);
 
   useEffect(() => { liveDataRef.current = liveData; }, [liveData]);
 
@@ -459,34 +733,61 @@ export default function SessionScreen() {
     });
   }, [sendRaw]);
 
-  // 5Hz graph accumulator
+  // Packet-driven telemetry accumulator (Deduplication + Schema alignment + Windowing)
   useEffect(() => {
-    if (!sessionActive) return;
-    const iv = setInterval(() => {
-      const d = liveDataRef.current;
-      if (!d) return;
-      const t     = Number(d.temperature ?? d.temp ?? 36.5);
-      const angle = Number(d.bodyAngle ?? 0);
-      const mSpd  = Number(d.motorSpeed ?? 0);
-      const emg   = Number(d.emg ?? 0);
-      const heat  = Boolean(d.heater) ? 1 : 0;
-      if (batchBuffer.current.length < 500) {
-        batchBuffer.current.push({
-          deviceId: connectedDevice?.name || 'HER-COMFORT',
-          sessionId: currentSessionId.current,
-          temp: t, bodyAngle: angle, motorSpeed: mSpd, emg, heater: heat,
-          position: d.position ?? 'UNKNOWN', motorMode: d.motorMode ?? 'OFF',
-          heaterSetpoint: d.heaterSetpoint ?? 40, timestamp: Date.now(),
-        });
-      }
-      tempBuffer.current = [...tempBuffer.current.slice(-149), t];
-      emgBuffer.current  = [...emgBuffer.current.slice(-149), emg];
-      totalPostureFrames.current += 1;
-      if ((d.position ?? 'UNKNOWN') === 'UPRIGHT') goodPostureFrames.current += 1;
-      setGraphData(prev => [...prev, { temp: t, bodyAngle: angle, motorSpeed: mSpd, emg, heater: heat }].slice(-60));
-    }, 200);
-    return () => clearInterval(iv);
-  }, [sessionActive, connectedDevice]);
+    if (!sessionActive || !liveData) return;
+    const d = liveData;
+    const espTs = d.espTimestamp != null ? Number(d.espTimestamp) : null;
+    if (espTs !== null && lastLoggedEspTs.current === espTs) {
+      return; // Deduplicate: already recorded this physical hardware packet
+    }
+    if (espTs !== null) lastLoggedEspTs.current = espTs;
+    if (lastPacketRef.current === d) return;
+    lastPacketRef.current = d;
+
+    const t     = Number(d.temperature ?? d.temp ?? 36.5);
+    const angle = Number(d.bodyAngle ?? 0);
+    const mSpd  = Number(d.motorSpeed ?? 0);
+    const emg   = Number(d.emg ?? 0);
+    const heat  = Boolean(d.heater) ? 1 : 0;
+    const now   = Date.now();
+    const elapsedSec = sessionStartTime.current
+      ? Math.max(0, Math.round((now - new Date(sessionStartTime.current).getTime()) / 1000))
+      : 0;
+
+    let windowType = 'active_early';
+    if (elapsedSec < 60) windowType = 'pre_washout';
+    else if (elapsedSec > 900) windowType = 'post_window';
+    else if (elapsedSec >= 420) windowType = 'active_late';
+
+    if (batchBuffer.current.length < 1500) {
+      batchBuffer.current.push({
+        deviceId: connectedDevice?.name || 'HER-COMFORT',
+        sessionId: currentSessionId.current,
+        temp: t,
+        bodyAngle: angle,
+        motorSpeed: mSpd,
+        emg,
+        emgEnvelope: d.emgEnvelope ?? emg,
+        heater: heat,
+        motorState: d.motorMode || (mSpd > 0 ? 'PULSE' : 'OFF'),
+        heaterState: heat ? 'ON' : 'OFF',
+        espTimestamp: espTs ?? now,
+        position: d.position ?? 'UNKNOWN',
+        motorMode: d.motorMode ?? 'OFF',
+        heaterSetpoint: d.heaterSetpoint ?? 40,
+        timestamp: now,
+        windowType,
+        elapsedSec,
+        isUserModification: userModifiedRef.current,
+      });
+    }
+    tempBuffer.current = [...tempBuffer.current.slice(-149), t];
+    emgBuffer.current  = [...emgBuffer.current.slice(-149), emg];
+    totalPostureFrames.current += 1;
+    if ((d.position ?? 'UNKNOWN') === 'UPRIGHT') goodPostureFrames.current += 1;
+    setGraphData(prev => [...prev, { temp: t, bodyAngle: angle, motorSpeed: mSpd, emg, heater: heat }].slice(-60));
+  }, [sessionActive, liveData, connectedDevice]);
 
   // Session timer — Fix 6: auto-stop at target duration; hard cap at 60 min
   const HARD_MAX_SECONDS = 60 * 60; // 60 minutes, safety ceiling
@@ -527,13 +828,21 @@ export default function SessionScreen() {
   }, [sessionActive, presetDuration, sendRaw]);
 
 
-  // Batch upload
+  // Batch upload with retention on network failure
   useEffect(() => {
     if (sessionActive) {
-      batchTimerRef.current = setInterval(() => {
+      batchTimerRef.current = setInterval(async () => {
         if (batchBuffer.current.length > 0) {
-          const toSend = [...batchBuffer.current]; batchBuffer.current = [];
-          ApiService.postBatchReadings(toSend).catch(() => {});
+          const toSend = [...batchBuffer.current];
+          const ok = await ApiService.postBatchReadings(toSend);
+          if (ok) {
+            batchBuffer.current = batchBuffer.current.slice(toSend.length);
+          } else {
+            console.warn('[Session] Telemetry batch upload failed; retaining buffered readings.');
+            if (batchBuffer.current.length > 1500) {
+              batchBuffer.current = batchBuffer.current.slice(-1500);
+            }
+          }
         }
       }, 8000);
     } else { if (batchTimerRef.current) clearInterval(batchTimerRef.current); }
@@ -557,7 +866,7 @@ export default function SessionScreen() {
           stress: symptoms.includes('Fatigue') ? 7 : undefined,
           fatigue: symptoms.includes('Fatigue') ? 8 : undefined,
           tookMedication: false,
-          skinTempIn: currentTemp,
+          skinTempIn: (currentTemp >= 30 && currentTemp <= 45) ? currentTemp : undefined,
         },
         contraindications: {},
       });
@@ -633,10 +942,9 @@ export default function SessionScreen() {
             onPress: () => {
               startDemo();
               setTimeout(() => {
-                const activeSessionId = currentSessionId.current || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+                const activeSessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
                 currentSessionId.current = activeSessionId;
-                const startIso = new Date().toISOString();
-                sessionStartTime.current = startIso;
+                sessionStartTime.current = new Date().toISOString();
                 setSessionSeconds(0);
                 tempBuffer.current = [];
                 emgBuffer.current = [];
@@ -646,7 +954,7 @@ export default function SessionScreen() {
                 setGraphData([]);
                 setSessionActive(true);
                 sessionService.startSession({
-                  sessionId: newSessionId,
+                  sessionId: activeSessionId,
                   location,
                   painBefore: painLevel,
                   symptoms,
@@ -665,29 +973,111 @@ export default function SessionScreen() {
       );
       return;
     }
-    const activeSessionId = currentSessionId.current || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    const activeSessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     currentSessionId.current = activeSessionId;
     const startIso = new Date().toISOString();
     sessionStartTime.current = startIso;
 
-    setSessionSeconds(0); tempBuffer.current = []; emgBuffer.current = []; batchBuffer.current = [];
-    goodPostureFrames.current = 0; totalPostureFrames.current = 0; setGraphData([]);
-    setSessionActive(true);
+    // Pilot Trial Mode Branch
+    if (isPilotMode && pilotStatus?.enrolled) {
+      if (pilotStatus.studyStatus === 'SUSPENDED') {
+        Alert.alert(
+          'Pilot Study Suspended',
+          'Sessions are currently blocked pending study supervisor review of an adverse event. Contact the study team.'
+        );
+        return;
+      }
+      if (pilotStatus.studyStatus === 'COMPLETED') {
+        Alert.alert('Study Complete', 'You have completed all 3 pilot sessions. Thank you for participating!');
+        return;
+      }
+      if (tMinus5Pain === null) {
+        Alert.alert(
+          'Dual Baseline Required',
+          'Protocol requires recording a pre-session pain baseline (T-5 min) before starting to control for pain volatility.\n\nTap below to log your T-5 baseline now.',
+          [
+            { text: 'Log T-5 min Baseline', onPress: handleRecordTMinus5 },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+        return;
+      }
 
-    // Save session info to MongoDB database immediately when user starts the session
-    sessionService.startSession({
-      sessionId: activeSessionId,
-      location,
-      painBefore: painLevel,
-      symptoms,
-      targetDurationMin: presetDuration,
-      deviceId: connectedDevice?.name || 'HER-COMFORT',
-      targetTemp: heaterSetpoint,
-      vibIntensity: motorSpeed,
-      vibMode: motorMode,
-    }).catch((err) => console.warn('[Session] startSession DB notice:', err));
+      try {
+        const pilotStartRes = await ApiService.post('/pilot/session/start', {
+          sessionId: activeSessionId,
+          context: {
+            painPre: painLevel,
+            painPre_tMinus5: tMinus5Pain,
+            painPre_t0: painLevel,
+            skinTempIn: (currentTemp >= 30 && currentTemp <= 45) ? currentTemp : undefined,
+          },
+          contraindications: {
+            pregnancy: false,
+            pacemaker: false,
+            skinCondition: false,
+          },
+        });
+
+        if (pilotStartRes?.success) {
+          setAiLogId(pilotStartRes.logId);
+          const allocatedArm = pilotStartRes.arm;
+          const assignedMode = allocatedArm.vibrationMode as MotorMode;
+          setMotorMode(assignedMode);
+          setMotorSpeed(allocatedArm.vibrationSpeed);
+          setHeaterSetpoint(allocatedArm.targetTemp);
+          setPresetDuration(allocatedArm.durationMin);
+          setMotorEnabled(assignedMode !== 'OFF');
+          setHeaterEnabled(true);
+
+          sendRaw(`SETPOINT:${allocatedArm.targetTemp}`);
+          if (assignedMode !== 'OFF') {
+            sendRaw(`MODE:${assignedMode}`);
+            sendRaw(`SPEED:${allocatedArm.vibrationSpeed}`);
+            sendRaw('MOTOR:ON');
+          } else {
+            sendRaw('MOTOR:OFF');
+          }
+          sendRaw('HEATER:ON');
+        } else {
+          Alert.alert('Pilot Start Failed', pilotStartRes?.message || 'Server rejected pilot session start.');
+          return;
+        }
+      } catch (err: any) {
+        Alert.alert('Trial Error', err?.response?.data?.message || 'Could not start pilot trial session.');
+        return;
+      }
+    } else {
+      // Standard Session Start
+      sessionService.startSession({
+        sessionId: activeSessionId,
+        location,
+        painBefore: painLevel,
+        symptoms,
+        targetDurationMin: presetDuration,
+        deviceId: connectedDevice?.name || 'HER-COMFORT',
+        targetTemp: heaterSetpoint,
+        vibIntensity: motorSpeed,
+        vibMode: motorMode,
+      }).catch((err) => console.warn('[Session] startSession DB notice:', err));
+    }
+
+    setSessionSeconds(0);
+    tempBuffer.current = [];
+    emgBuffer.current = [];
+    batchBuffer.current = [];
+    goodPostureFrames.current = 0;
+    totalPostureFrames.current = 0;
+    setGraphData([]);
+    setSessionActive(true);
   }, [
     isConnected,
+    isPilotMode,
+    pilotStatus,
+    tMinus5Pain,
+    handleRecordTMinus5,
+    currentTemp,
     router,
     startDemo,
     location,
@@ -698,35 +1088,61 @@ export default function SessionScreen() {
     heaterSetpoint,
     motorSpeed,
     motorMode,
+    sendRaw,
   ]);
 
   // Fix 3: Wrap manual control handlers to set userModified flag
   const handleMotorModeWithTracking = useCallback((mode: MotorMode) => {
-    if (aiApplied) userModifiedRef.current = true;
+    if (aiApplied || isPilotMode) userModifiedRef.current = true;
     handleMotorMode(mode);
-  }, [aiApplied, handleMotorMode]);
+  }, [aiApplied, isPilotMode, handleMotorMode]);
 
   const handleSpeedChangeWithTracking = useCallback((v: number) => {
-    if (aiApplied) userModifiedRef.current = true;
+    if (aiApplied || isPilotMode) userModifiedRef.current = true;
     handleSpeedChange(v);
-  }, [aiApplied, handleSpeedChange]);
+  }, [aiApplied, isPilotMode, handleSpeedChange]);
 
   const handleSetpointChangeWithTracking = useCallback((delta: number) => {
-    if (aiApplied) userModifiedRef.current = true;
+    if (aiApplied || isPilotMode) userModifiedRef.current = true;
     handleSetpointChange(delta);
-  }, [aiApplied, handleSetpointChange]);
+  }, [aiApplied, isPilotMode, handleSetpointChange]);
 
-  // Fix 2+3: handleEnd now receives (painAfter, painPostConfirmed)
-  const handleEnd = useCallback(async (painAfter: number, painPostConfirmed: boolean) => {
+  // Fix 2+3 + Phase 2 Pilot Feedback
+  const handleEnd = useCallback(async (data: SessionEndData) => {
+    const {
+      painAfter,
+      painPostConfirmed,
+      painPost15 = null,
+      comfortScore = 4,
+      adverseEvent = false,
+      adverseCategory = 'NONE',
+      adverseSeverity = 'NONE',
+      earlyTerminationReason = 'NONE',
+    } = data;
+
     const wasHeaterEnabled = heaterEnabled;
     const wasMotorEnabled  = motorEnabled;
     setShowEndModal(false); setSessionActive(false);
     sendRaw('MOTOR:OFF'); sendRaw('HEATER:OFF');
     setMotorEnabled(false); setHeaterEnabled(false);
+
+    // Reliable Telemetry Flush: retain in AsyncStorage on network failure
     if (batchBuffer.current.length > 0) {
-      const rem = [...batchBuffer.current]; batchBuffer.current = [];
-      ApiService.postBatchReadings(rem).catch(() => {});
+      const rem = [...batchBuffer.current];
+      const ok = await ApiService.postBatchReadings(rem);
+      if (ok) {
+        batchBuffer.current = [];
+      } else {
+        try {
+          const offlineKey = `@offline_batch_${currentSessionId.current}`;
+          await AsyncStorage.setItem(offlineKey, JSON.stringify(rem));
+          console.warn('[Session] Saved unsent batch readings to offline storage:', offlineKey);
+        } catch (e) {
+          console.warn('[Session] Failed to persist offline telemetry:', e);
+        }
+      }
     }
+
     const dSecs = sessionSeconds;
     const allTemp = tempBuffer.current.length ? tempBuffer.current : [currentTemp];
     const avgTemp = parseFloat((allTemp.reduce((a, b) => a + b, 0) / allTemp.length).toFixed(1));
@@ -734,25 +1150,28 @@ export default function SessionScreen() {
     const allEmg  = emgBuffer.current.length ? emgBuffer.current : [currentEMG];
     const emgRms  = parseFloat(Math.sqrt(allEmg.reduce((s, v) => s + v * v, 0) / allEmg.length).toFixed(1));
 
-    // Fix 3: compute effective settingSource
-    const effectiveSource = !aiApplied
-      ? 'user_manual'
-      : userModifiedRef.current
-        ? 'user_modified'
-        : 'ml_recommendation';
+    // Setting source computation
+    const effectiveSource = isPilotMode
+      ? 'trial_allocator'
+      : !aiApplied
+        ? 'user_manual'
+        : userModifiedRef.current
+          ? 'user_modified'
+          : 'ml_recommendation';
 
-    const sourceLabel = effectiveSource === 'ml_recommendation'
-      ? 'AI Prescription'
-      : effectiveSource === 'user_modified'
-        ? 'User Modified (AI Prescribed with manual adjustments)'
-        : 'User Manual';
+    const sourceLabel = effectiveSource === 'trial_allocator'
+      ? 'Pilot Randomized Trial'
+      : effectiveSource === 'ml_recommendation'
+        ? 'AI Prescription'
+        : effectiveSource === 'user_modified'
+          ? 'User Modified'
+          : 'User Manual';
 
-    const notes = `Protocol Source: ${sourceLabel}. ${motorMode} at ${motorSpeed}%. Setpoint ${heaterSetpoint}C. Pain ${painLevel} -> ${painAfter}.`;
-    // Compute average body angle from posture frames
+    const notes = `Protocol: ${sourceLabel}. ${motorMode} at ${motorSpeed}%. Setpoint ${heaterSetpoint}C. Pain ${painLevel} -> ${painAfter}. Comfort: ${comfortScore}/5.`;
+
     const avgBodyAngle = totalPostureFrames.current > 0
       ? parseFloat((goodPostureFrames.current / totalPostureFrames.current * 90).toFixed(1))
       : 0;
-    // Most common position: UPRIGHT if >50% of frames were upright, else UNKNOWN
     const postureRatio = totalPostureFrames.current > 0
       ? goodPostureFrames.current / totalPostureFrames.current
       : 0;
@@ -788,23 +1207,59 @@ export default function SessionScreen() {
         deviceId: connectedDevice?.name || 'HER-COMFORT',
       });
 
-      // Submit AI feedback for closed-loop learning (Fix 2+3)
-      submitAIFeedback(painAfter, dSecs, painPostConfirmed, effectiveSource);
+      // Submit feedback to backend
+      if (aiLogId) {
+        await ApiService.post('/therapy/feedback', {
+          logId: aiLogId,
+          sessionId: currentSessionId.current,
+          painPost: painAfter,
+          painPost_15min: painPost15,
+          painPostConfirmed_15min: painPost15 !== null,
+          actualDurationSeconds: dSecs,
+          completionStatus: 'COMPLETED',
+          settingSource: effectiveSource,
+          painPostConfirmed,
+          comfortScore,
+          adverseEvent,
+          adverseCategory,
+          adverseSeverity,
+          earlyTermination: dSecs < (presetDuration * 60) - 30,
+          earlyTerminationReason,
+        });
 
+        if (isPilotMode) {
+          fetchPilotStatus();
+          if (adverseSeverity === 'MODERATE' || adverseSeverity === 'SEVERE') {
+            Alert.alert(
+              '⚠️ Study Safety Review Triggered',
+              'Because a moderate or severe adverse event was reported, further study sessions have been suspended in accordance with the pilot safety protocol. The study supervisor has been notified.'
+            );
+          }
+        }
+      }
 
       Alert.alert(
-        'Session Saved',
-        'Your therapy session has been logged and synced to the database.',
+        'Session Completed & Synced',
+        isPilotMode
+          ? `Pilot session ${pilotStatus?.nextSessionOrder ?? 1} of 3 recorded. Thank you for your contribution!`
+          : 'Your therapy session has been logged and synced to the database.',
         [
-          { text: 'View in History', onPress: () => router.push('/(tabs)/history' as any) },
+          { text: 'View History', onPress: () => router.push('/(tabs)/history' as any) },
           { text: 'Done', style: 'default' },
         ]
       );
     } catch {
-      Alert.alert('Save Failed', 'Session could not be saved to storage.');
+      Alert.alert('Save Failed', 'Session could not be saved to local storage.');
     }
-    setSessionSeconds(0); tempBuffer.current = []; emgBuffer.current = [];
-    goodPostureFrames.current = 0; totalPostureFrames.current = 0; setGraphData([]);
+
+    setSessionSeconds(0);
+    tempBuffer.current = [];
+    emgBuffer.current = [];
+    goodPostureFrames.current = 0;
+    totalPostureFrames.current = 0;
+    setGraphData([]);
+    setTMinus5Pain(null);
+    setTMinus5Time(null);
     currentSessionId.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   }, [
     sessionSeconds,
@@ -816,7 +1271,6 @@ export default function SessionScreen() {
     heaterEnabled,
     motorEnabled,
     painLevel,
-    submitAIFeedback,
     location,
     symptoms,
     presetDuration,
@@ -824,6 +1278,10 @@ export default function SessionScreen() {
     sendRaw,
     router,
     connectedDevice,
+    isPilotMode,
+    pilotStatus,
+    aiLogId,
+    fetchPilotStatus,
   ]);
 
   const toggleSymptom = useCallback((key: string) => {
@@ -1142,6 +1600,126 @@ export default function SessionScreen() {
           )}
         </View>
 
+        {/* Pilot Feasibility Study Card */}
+        {isPilotMode && pilotStatus?.enrolled ? (
+          <View style={{
+            backgroundColor: '#F8FAFC',
+            borderRadius: 18,
+            borderWidth: 1.5,
+            borderColor: pilotStatus.studyStatus === 'SUSPENDED' ? '#FCA5A5' : '#BFDBFE',
+            padding: 16,
+            marginTop: 12,
+            marginBottom: 6,
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialCommunityIcons name="flask-outline" size={18} color={pilotStatus.studyStatus === 'SUSPENDED' ? T.red : T.blue} />
+                <Text style={{ fontSize: 11, fontWeight: '800', color: pilotStatus.studyStatus === 'SUSPENDED' ? T.red : T.blue, letterSpacing: 0.6 }}>
+                  PILOT FEASIBILITY STUDY
+                </Text>
+              </View>
+              <View style={{
+                backgroundColor: pilotStatus.studyStatus === 'SUSPENDED' ? '#FEF2F2' : '#EFF6FF',
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: pilotStatus.studyStatus === 'SUSPENDED' ? '#FCA5A5' : '#BFDBFE'
+              }}>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: pilotStatus.studyStatus === 'SUSPENDED' ? T.red : T.blue }}>
+                  {pilotStatus.studyStatus}
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+              <View style={{ flex: 1, backgroundColor: '#FFF', padding: 8, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                <Text style={{ fontSize: 9, fontWeight: '700', color: T.muted }}>PARTICIPANT</Text>
+                <Text style={{ fontSize: 15, fontFamily: 'monospace', fontWeight: '900', color: T.text, marginTop: 1 }}>
+                  {pilotStatus.participantId}
+                </Text>
+              </View>
+              <View style={{ flex: 1, backgroundColor: '#FFF', padding: 8, borderRadius: 10, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                <Text style={{ fontSize: 9, fontWeight: '700', color: T.muted }}>SESSION ORDER</Text>
+                <Text style={{ fontSize: 15, fontFamily: 'monospace', fontWeight: '900', color: T.text, marginTop: 1 }}>
+                  {pilotStatus.nextSessionOrder} of 3
+                </Text>
+              </View>
+            </View>
+
+            {pilotStatus.studyStatus === 'SUSPENDED' ? (
+              <View style={{ backgroundColor: '#FEF2F2', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#FCA5A5' }}>
+                <Text style={{ fontSize: 11, color: '#991B1B', fontWeight: '700' }}>
+                  🚫 Study sessions are suspended for safety review. Please report to the study supervisor.
+                </Text>
+              </View>
+            ) : pilotStatus.studyStatus === 'COMPLETED' ? (
+              <View style={{ backgroundColor: '#ECFDF5', padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#A7F3D0' }}>
+                <Text style={{ fontSize: 11, color: '#065F46', fontWeight: '700' }}>
+                  🎉 All 3 crossover sessions completed! Data has been linked to the trial database.
+                </Text>
+              </View>
+            ) : (
+              <View style={{ backgroundColor: '#FFF', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: T.text }}>
+                    PRE-SESSION DUAL BASELINE (T-5 min)
+                  </Text>
+                  {tMinus5Pain !== null && (
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: T.green }}>
+                      ✓ Logged {tMinus5Time}
+                    </Text>
+                  )}
+                </View>
+                <Text style={{ fontSize: 10, color: T.sub, lineHeight: 14 }}>
+                  Protocol requires measuring pain at T-5 min and at session start (T-0) to control for spontaneous pain volatility.
+                </Text>
+                <TouchableOpacity
+                  onPress={handleRecordTMinus5}
+                  style={{
+                    backgroundColor: tMinus5Pain !== null ? '#ECFDF5' : '#EFF6FF',
+                    borderRadius: 10,
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderWidth: 1,
+                    borderColor: tMinus5Pain !== null ? '#A7F3D0' : '#BFDBFE',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ fontSize: 11.5, fontWeight: '800', color: tMinus5Pain !== null ? T.green : T.blue }}>
+                    {tMinus5Pain !== null ? `T-5 Baseline: ${tMinus5Pain}/10 (Tap to Update)` : `Record Current Pain (${painLevel}/10) as T-5 Baseline`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={() => setShowEnrollModal(true)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#EFF6FF',
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: '#BFDBFE',
+              padding: 12,
+              marginTop: 12,
+              marginBottom: 4,
+            }}
+            activeOpacity={0.85}
+          >
+            <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' }}>
+              <MaterialCommunityIcons name="flask-outline" size={18} color={T.blue} />
+            </View>
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Text style={{ fontSize: 12.5, fontWeight: '800', color: '#1E3A8A' }}>Pilot Feasibility Study</Text>
+              <Text style={{ fontSize: 10.5, color: '#3B82F6', marginTop: 1 }}>Join the 3-session crossover trial to help evaluate relief presets.</Text>
+            </View>
+            <Feather name="chevron-right" size={16} color={T.blue} />
+          </TouchableOpacity>
+        )}
+
         {/* Screen Title */}
         <View style={{ marginTop: 18, marginBottom: 14 }}>
           <Text style={s.screenHeading}>Prepare Your Relief Session</Text>
@@ -1416,6 +1994,107 @@ export default function SessionScreen() {
           <Text style={s.footerTaglineText}>Small steps. A more comfortable you.</Text>
         </View>
       </ScrollView>
+
+      {/* Pilot Enrollment Modal */}
+      <Modal visible={showEnrollModal} transparent animationType="slide">
+        <View style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 22, maxHeight: '90%' }}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <Text style={{ fontSize: 17, fontWeight: '900', color: T.text }}>
+                  🔬 PILOT STUDY ENROLLMENT
+                </Text>
+                <TouchableOpacity onPress={() => setShowEnrollModal(false)}>
+                  <Feather name="x" size={20} color={T.sub} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={{ fontSize: 11, color: T.sub, marginBottom: 14, lineHeight: 16 }}>
+                HerComfort Feasibility Study Protocol v1.0.0. De-identified 3-session crossover evaluating Heat Only, Heat+Pulse, and Heat+Harmonic.
+              </Text>
+
+              {/* Age Selection */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: T.text, marginBottom: 6 }}>
+                  PARTICIPANT AGE (Inclusion: 18-45)
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {['20', '25', '30', '35', '40'].map((a) => (
+                    <TouchableOpacity
+                      key={a}
+                      onPress={() => setPilotAge(a)}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 8,
+                        borderRadius: 8,
+                        backgroundColor: pilotAge === a ? T.pink : '#F1F5F9',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: pilotAge === a ? '#FFF' : T.sub }}>{a}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Exclusion Checklist */}
+              <Text style={{ fontSize: 11, fontWeight: '800', color: T.text, marginBottom: 6 }}>
+                SAFETY SCREENING (Must All Be Verified)
+              </Text>
+              <View style={{ gap: 8, marginBottom: 14 }}>
+                {[
+                  { label: 'Pregnancy negative (Exclusion criterion)', val: pilotScreenPreg, set: setPilotScreenPreg },
+                  { label: 'No cardiac pacemaker or active implant', val: pilotScreenPace, set: setPilotScreenPace },
+                  { label: 'No broken skin or lesions at belt site', val: pilotScreenSkin, set: setPilotScreenSkin },
+                  { label: 'I consent to voluntary study protocol v1.0.0', val: pilotConsent, set: setPilotConsent },
+                ].map((item, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    onPress={() => item.set(!item.val)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: 10,
+                      backgroundColor: item.val ? '#ECFDF5' : '#FEF2F2',
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: item.val ? '#A7F3D0' : '#FECACA',
+                    }}
+                  >
+                    <MaterialCommunityIcons
+                      name={item.val ? 'checkbox-marked-circle' : 'close-circle'}
+                      size={18}
+                      color={item.val ? T.green : T.red}
+                    />
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: item.val ? '#065F46' : '#991B1B', flex: 1 }}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                onPress={handlePilotEnroll}
+                disabled={pilotSubmitting || !pilotConsent || !pilotScreenPreg || !pilotScreenPace || !pilotScreenSkin}
+                style={{
+                  backgroundColor: (!pilotConsent || !pilotScreenPreg || !pilotScreenPace || !pilotScreenSkin) ? '#CBD5E1' : T.pink,
+                  borderRadius: 14,
+                  padding: 14,
+                  alignItems: 'center',
+                  marginBottom: 10,
+                }}
+              >
+                {pilotSubmitting ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: '800', fontSize: 14 }}>Accept Consent & Complete Enrollment</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

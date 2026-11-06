@@ -227,36 +227,123 @@ export async function createBatchReadings(req, res) {
       });
     }
 
-    const docs = readings.map((r) => ({
-      deviceId: r.deviceId || 'HER-COMFORT',
-      temp: Number(r.temp ?? r.temperature ?? 36.5),
-      bpm: Number(r.bpm ?? 72),
-      gx: Number(r.gx ?? 0),
-      gy: Number(r.gy ?? 0),
-      gz: Number(r.gz ?? 0),
-      raw_analog: Number(r.raw_analog ?? 1700),
-      motor: Boolean(r.motor),
-      heater: Boolean(r.heater),
-      autoMode: Boolean(r.autoMode ?? false),
-      active: Boolean(r.active ?? true),
-      sensorError: Boolean(r.sensorError ?? false),
-      sessionId: r.sessionId || null,
-      // New Her Comfort ESP32 C6 telemetry fields
-      emg: r.emg != null ? Number(r.emg) : undefined,
-      emgEnvelope: r.emgEnvelope != null ? Number(r.emgEnvelope) : undefined,
-      position: r.position || undefined,
-      bodyAngle: r.bodyAngle != null ? Number(r.bodyAngle) : undefined,
-      motorMode: r.motorMode || undefined,
-      motorSpeed: r.motorSpeed != null ? Number(r.motorSpeed) : undefined,
-      heaterSetpoint: r.heaterSetpoint != null ? Number(r.heaterSetpoint) : undefined,
-      espTimestamp: r.timestamp || r.espTimestamp || Date.now(),
-      receivedAt: r.receivedAt ? new Date(r.receivedAt) : new Date(),
-    }));
+    // Validate readings schema and physiological sensor bounds
+    for (let i = 0; i < readings.length; i++) {
+      const r = readings[i];
+      if (!r || typeof r !== 'object') {
+        return res.status(400).json({ success: false, message: `Reading at index ${i} must be an object.` });
+      }
+      const t = r.temp ?? r.temperature;
+      if (t === undefined || isNaN(Number(t))) {
+        return res.status(400).json({ success: false, message: `Reading at index ${i} has missing or non-numeric temperature.` });
+      }
+      const numT = Number(t);
+      if (numT < 0 || numT > 60) {
+        return res.status(400).json({ success: false, message: `Reading at index ${i} has out-of-range temperature (${numT}°C). Expected 0–60°C.` });
+      }
+      if (r.emg != null && (isNaN(Number(r.emg)) || Number(r.emg) < 0)) {
+        return res.status(400).json({ success: false, message: `Reading at index ${i} has invalid EMG value.` });
+      }
+      if (r.emgEnvelope != null && (isNaN(Number(r.emgEnvelope)) || Number(r.emgEnvelope) < 0 || Number(r.emgEnvelope) > 100)) {
+        return res.status(400).json({ success: false, message: `Reading at index ${i} has out-of-range emgEnvelope (${r.emgEnvelope}). Expected 0–100.` });
+      }
+    }
 
+    // In-batch deduplication: avoid inserting identical hardware frames within the same payload
+    const seenBatchKeys = new Set();
+    const uniqueReadings = [];
+    for (const r of readings) {
+      const sId = r.sessionId;
+      const eTs = r.espTimestamp || r.timestamp;
+      if (sId && eTs) {
+        const key = `${sId}_${eTs}`;
+        if (seenBatchKeys.has(key)) {
+          continue; // skip duplicate frame in batch
+        }
+        seenBatchKeys.add(key);
+      }
+      uniqueReadings.push(r);
+    }
+
+    const docs = uniqueReadings.map((r) => {
+      const motorState = r.motorState != null 
+        ? Boolean(r.motorState) 
+        : (typeof r.motorMode === 'string' && r.motorMode.toUpperCase() !== 'OFF') 
+          ? true 
+          : Boolean(r.motor);
+
+      const heaterState = r.heaterState != null
+        ? Boolean(r.heaterState)
+        : (typeof r.heater === 'string')
+          ? r.heater.toUpperCase() === 'ON'
+          : Boolean(r.heater);
+
+      const emgEnv = r.emgEnvelope != null 
+        ? Number(r.emgEnvelope) 
+        : r.emg != null 
+          ? Number(r.emg) 
+          : undefined;
+
+      let windowType = r.windowType ? String(r.windowType).toUpperCase() : null;
+      if (windowType === 'PRE_WASHOUT' || windowType === 'PRE-WASHOUT') windowType = 'PRE_BASELINE';
+      if (windowType === 'ACTIVE_EARLY' || windowType === 'ACTIVE_LATE' || windowType === 'ACTIVE') windowType = 'ACTIVE_THERAPY';
+      if (windowType === 'POST_WASHOUT' || windowType === 'POST-WASHOUT') windowType = 'POST_BASELINE';
+      if (windowType && !['PRE_BASELINE', 'ACTIVE_THERAPY', 'POST_BASELINE'].includes(windowType)) {
+        windowType = null;
+      }
+
+      const inferredMotorMode = r.motorMode 
+        || (typeof r.motorState === 'string' && ['OFF', 'CONTINUOUS', 'PULSE', 'HARMONIC'].includes(r.motorState.toUpperCase()) 
+            ? r.motorState.toUpperCase() 
+            : (motorState ? 'CONTINUOUS' : 'OFF'));
+
+      return {
+        deviceId: r.deviceId || 'HER-COMFORT',
+        temp: Number(r.temp ?? r.temperature ?? 36.5),
+        bpm: Number(r.bpm ?? 72),
+        gx: Number(r.gx ?? 0),
+        gy: Number(r.gy ?? 0),
+        gz: Number(r.gz ?? 0),
+        raw_analog: Number(r.raw_analog ?? 1700),
+        motor: motorState,
+        motorState,
+        heater: heaterState,
+        heaterState,
+        autoMode: Boolean(r.autoMode ?? false),
+        active: Boolean(r.active ?? true),
+        sensorError: Boolean(r.sensorError ?? false),
+        sessionId: r.sessionId || null,
+        // Pilot telemetry fields
+        emg: r.emg != null ? Number(r.emg) : undefined,
+        emgEnvelope: emgEnv,
+        position: r.position || undefined,
+        bodyAngle: r.bodyAngle != null ? Number(r.bodyAngle) : undefined,
+        motorMode: inferredMotorMode,
+        motorSpeed: r.motorSpeed != null ? Number(r.motorSpeed) : undefined,
+        heaterSetpoint: r.heaterSetpoint != null ? Number(r.heaterSetpoint) : undefined,
+        windowType,
+        elapsedSec: r.elapsedSec != null ? Number(r.elapsedSec) : null,
+        isUserModification: Boolean(r.isUserModification),
+        modificationDirection: r.modificationDirection || 'NONE',
+        modificationTimestampSec: Number(r.modificationTimestampSec || 0),
+        espTimestamp: r.espTimestamp || r.timestamp || Date.now(),
+        receivedAt: r.receivedAt ? new Date(r.receivedAt) : new Date(),
+      };
+    });
+
+    let insertedDocs = [];
     try {
-      await SensorReading.insertMany(docs, { ordered: false });
+      insertedDocs = await SensorReading.insertMany(docs, { ordered: false });
     } catch (insertErr) {
       console.warn('[SensorReading] Batch insert notice:', insertErr?.message);
+      if (insertErr.insertedDocs && insertErr.insertedDocs.length > 0) {
+        insertedDocs = insertErr.insertedDocs;
+      } else if (insertErr.code === 11000 || insertErr.name === 'MongoBulkWriteError') {
+        // Handled: duplicate packets safely rejected by unique index without failing request
+        insertedDocs = [];
+      } else {
+        throw insertErr;
+      }
     }
 
     // Broadcast latest packet from batch if socket is connected
@@ -270,7 +357,9 @@ export async function createBatchReadings(req, res) {
 
     return res.status(201).json({
       success: true,
-      insertedCount: docs.length,
+      count: insertedDocs.length,
+      insertedCount: insertedDocs.length,
+      duplicatesSkipped: docs.length - insertedDocs.length,
     });
   } catch (err) {
     console.error('[createBatchReadings] Error:', err);
@@ -399,7 +488,7 @@ export async function createSession(req, res) {
     const sessionDoc = await Session.findOneAndUpdate(
       { sessionId: id },
       updateDoc,
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     );
 
     // Notify connected dashboard clients of session lifecycle update

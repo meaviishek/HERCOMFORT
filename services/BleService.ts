@@ -382,6 +382,7 @@ class BleService {
         motorSpeed: parsed.motorSpeed != null ? parseInt(parsed.motorSpeed, 10) : undefined,
         heaterSetpoint: parsed.heaterSetpoint != null ? parseFloat(parsed.heaterSetpoint) : undefined,
         timestamp: Date.now(),
+        espTimestamp: parsed.espTimestamp != null ? Number(parsed.espTimestamp) : (parsed.timestamp != null ? Number(parsed.timestamp) : undefined),
       };
 
       if (this._onDataCallback) {

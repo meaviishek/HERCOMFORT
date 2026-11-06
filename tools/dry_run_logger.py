@@ -231,13 +231,27 @@ class DryRunLogger:
             device = await BleakScanner.find_device_by_address(target_address, timeout=10.0)
         else:
             print("[*] Scanning for Her Comfort / ESP32 device...")
-            devices = await BleakScanner.discover(timeout=7.0)
-            for d in devices:
-                d_name = (d.name or "").upper()
-                if any(k in d_name for k in DEVICE_NAME_KEYWORDS):
-                    device = d
-                    print(f"[+] Found candidate band: {d.name} ({d.address})")
-                    break
+            discovered = await BleakScanner.discover(timeout=7.0, return_adv=True)
+            candidate_list = []
+            for address, (d, adv) in discovered.items():
+                name = (adv.local_name or d.name or "").upper()
+                services = [s.lower() for s in (adv.service_uuids or [])]
+                if any(k in name for k in DEVICE_NAME_KEYWORDS) or self.service_uuid.lower() in services:
+                    candidate_list.append((d, adv))
+
+            if candidate_list:
+                device, adv = candidate_list[0]
+                print(f"[+] Auto-selected candidate band: '{adv.local_name or device.name}' ({device.address}) RSSI: {adv.rssi} dBm")
+            else:
+                print("[-] No device matching keywords ('HER COMFORT', 'ESP32', etc.) or service UUID found.")
+                print("[*] Top nearby BLE devices detected:")
+                all_sorted = sorted(discovered.values(), key=lambda pair: pair[1].rssi, reverse=True)[:10]
+                for idx, (d, adv) in enumerate(all_sorted, 1):
+                    dev_name = adv.local_name or d.name or "(Unnamed)"
+                    print(f"   [{idx}] {dev_name:<30} [{d.address}] RSSI: {adv.rssi} dBm")
+                print("\nTip: Pass the address directly, e.g.:")
+                print("     python tools/dry_run_logger.py --participant D01 --address <MAC_OR_UUID>")
+                return
 
         if not device:
             print("[-] No compatible Her Comfort device found. Check device power and advertising.")
@@ -251,6 +265,27 @@ class DryRunLogger:
                 return
 
             print(f"[+] Connected successfully to {device.address}!")
+            
+            # Inspect discovered GATT characteristics
+            char_found = False
+            notify_candidates = []
+            for service in client.services:
+                for char in service.characteristics:
+                    if "notify" in char.properties:
+                        notify_candidates.append(char)
+                    if char.uuid.lower() == self.char_uuid.lower():
+                        char_found = True
+
+            if not char_found:
+                if notify_candidates:
+                    chosen = notify_candidates[0]
+                    print(f"[!] Characteristic {self.char_uuid} not found in GATT table.")
+                    print(f"[+] Auto-selected active NOTIFY characteristic: {chosen.uuid} (Service: {chosen.service_uuid})")
+                    self.char_uuid = chosen.uuid
+                else:
+                    print(f"[-] No NOTIFY characteristic found on {device.address}.")
+                    return
+
             print(f"[*] Subscribing to telemetry notifications on {self.char_uuid}...")
 
             await client.start_notify(self.char_uuid, self.notification_handler)

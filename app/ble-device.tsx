@@ -94,6 +94,8 @@ export default function BleDeviceScreen() {
     connect,
     disconnect,
     discoveredDevices,
+    startBridgeMode,
+    startDemo,
   } = useBluetooth();
 
   const connected = connectionStatus === CONNECTION_STATUS.CONNECTED;
@@ -171,6 +173,28 @@ export default function BleDeviceScreen() {
                 </Text>
               </View>
             </View>
+          </View>
+        )}
+
+        {!connected && (
+          <View style={{ gap: 10, marginBottom: 14 }}>
+            <TouchableOpacity
+              onPress={startBridgeMode}
+              style={[s.scanBtn, { backgroundColor: '#4F46E5', marginTop: 4 }]}
+              activeOpacity={0.85}
+            >
+              <Feather name="link" size={18} color="#fff" />
+              <Text style={s.scanBtnTxt}>Connect via PC Bridge (Live Band)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={startDemo}
+              style={[s.scanBtn, { backgroundColor: '#0284C7', marginTop: 0 }]}
+              activeOpacity={0.85}
+            >
+              <Feather name="play-circle" size={18} color="#fff" />
+              <Text style={s.scanBtnTxt}>Explore with Demo Simulator</Text>
+            </TouchableOpacity>
           </View>
         )}
 

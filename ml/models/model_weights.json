@@ -1,165 +1,118 @@
 {
-  "model_version": "preset-scorer-v1.0",
-  "model_type": "RandomForestRegressor (sklearn)",
+  "model_version": "pilot-calibrated-ridge-v1.0",
+  "model_type": "MultiArmRidgeRegression",
   "feature_columns": [
-    "pain_pre",
-    "emg",
-    "posture",
+    "pain_pre_baseline",
+    "emg_pre_rms",
     "cycle_day",
-    "stress",
-    "fatigue",
-    "took_med",
-    "mins_since_med"
+    "posture_code",
+    "took_medication"
   ],
+  "imputation": {
+    "pain_pre_baseline": 5.4414,
+    "emg_pre_rms": 50.3183,
+    "cycle_day": 14.3974,
+    "posture_code": 1.0,
+    "took_medication": 0.2538
+  },
   "scaler": {
-    "mean_": [
-      5.451524999999987,
-      50.50179999999998,
-      1.0015,
-      14.39625,
-      4.9509499999999935,
-      5.023400000000007,
-      0.25825,
-      32.33425
+    "mean": [
+      5.4414,
+      50.3183,
+      14.3974,
+      1.0,
+      0.2538
     ],
-    "scale_": [
-      2.6124485974608143,
-      25.729926967638292,
-      0.82340618773483,
-      8.043583525860864,
-      2.9122077703178997,
-      2.8769284732158344,
-      0.43767218040447725,
-      64.33717453337182
-    ]
+    "scale": [
+      2.6204,
+      25.7601,
+      8.0713,
+      1.0,
+      0.4352
+    ],
+    "n_samples_fit": 5000
   },
-  "feature_importances": {
-    "pain_pre": 0.8516865623731464,
-    "emg": 0.04796443257666308,
-    "posture": 0.04470749588378531,
-    "cycle_day": 0.011976911947390608,
-    "stress": 0.014461685021842394,
-    "fatigue": 0.014495897482755168,
-    "took_med": 0.0025426767089062837,
-    "mins_since_med": 0.012164338005510691
-  },
-  "preset_stats": {
-    "P07": {
-      "mean_delta_pain": 3.7619,
-      "std_delta_pain": 1.2361,
-      "count": 485
+  "arm_models": {
+    "ARM_HEAT_ONLY": {
+      "intercept": 1.2,
+      "coefficients": [
+        0.2,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "n_samples": 0,
+      "is_fallback": true,
+      "fallback_reason": "NO_TRAINING_DATA"
     },
-    "P09": {
-      "mean_delta_pain": 4.2881,
-      "std_delta_pain": 1.0761,
-      "count": 590
+    "ARM_HEAT_PULSE": {
+      "intercept": 2.3712,
+      "coefficients": [
+        1.389,
+        0.065,
+        -0.0038,
+        0.0,
+        -0.09
+      ],
+      "n_samples": 2752,
+      "is_fallback": false
     },
-    "P12": {
-      "mean_delta_pain": 0.6498,
-      "std_delta_pain": 0.6593,
-      "count": 323
-    },
-    "P01": {
-      "mean_delta_pain": 0.7505,
-      "std_delta_pain": 0.7053,
-      "count": 477
-    },
-    "P05": {
-      "mean_delta_pain": 2.073,
-      "std_delta_pain": 0.8609,
-      "count": 363
-    },
-    "P06": {
-      "mean_delta_pain": 2.5292,
-      "std_delta_pain": 1.1731,
-      "count": 801
-    },
-    "P04": {
-      "mean_delta_pain": 1.8033,
-      "std_delta_pain": 0.8082,
-      "count": 398
-    },
-    "P10": {
-      "mean_delta_pain": 5.7029,
-      "std_delta_pain": 1.1973,
-      "count": 478
-    },
-    "P11": {
-      "mean_delta_pain": 0.695,
-      "std_delta_pain": 0.6674,
-      "count": 200
-    },
-    "P02": {
-      "mean_delta_pain": 0.7055,
-      "std_delta_pain": 0.652,
-      "count": 289
-    },
-    "P08": {
-      "mean_delta_pain": 5.2568,
-      "std_delta_pain": 1.1381,
-      "count": 433
-    },
-    "P03": {
-      "mean_delta_pain": 1.2485,
-      "std_delta_pain": 0.7477,
-      "count": 163
+    "ARM_HEAT_HARMONIC": {
+      "intercept": 3.1916,
+      "coefficients": [
+        1.9547,
+        0.2676,
+        -0.0079,
+        0.0,
+        0.0066
+      ],
+      "n_samples": 2248,
+      "is_fallback": false
     }
   },
   "training_meta": {
+    "dataset_type": "SYNTHETIC_DEVELOPMENT",
+    "dataset_path": "C:\\Users\\OMHARI\\Development\\HERCOMFORT\\ml\\data\\synthetic_prototype_dataset.csv",
+    "target_definition": "deltaPain_15min = painPre_baseline - painPost_15min",
     "n_samples": 5000,
-    "n_train": 4000,
-    "n_test": 1000,
-    "train_time_seconds": 0.206,
-    "dataset": "synthetic_prototype_dataset.csv",
-    "disclaimer": "Synthetic cold-start prior. Not real patient data."
+    "unique_participants": 3925,
+    "per_arm_samples": {
+      "ARM_HEAT_ONLY": 0,
+      "ARM_HEAT_PULSE": 2752,
+      "ARM_HEAT_HARMONIC": 2248
+    },
+    "per_arm_unique_participants": {
+      "ARM_HEAT_ONLY": 0,
+      "ARM_HEAT_PULSE": 2416,
+      "ARM_HEAT_HARMONIC": 1999
+    },
+    "emg_imputed_rows": 0,
+    "train_time_seconds": 0.031,
+    "random_seed": 42,
+    "trained_at": "2026-11-04T08:42:20Z",
+    "disclaimer": "Synthetic cold-start prior. Not for clinical use."
   },
   "evaluation": {
-    "mae_on_delta_pain": 0.6939,
-    "r2_on_delta_pain": 0.8109,
-    "note": "Metrics reflect fit to synthetic heuristic data, not clinical efficacy."
-  },
-  "feature_weights": {
-    "pain_pre": 0.8516865623731464,
-    "emg": 0.04796443257666308,
-    "posture": 0.04470749588378531,
-    "cycle_day": 0.011976911947390608,
-    "stress": 0.014461685021842394,
-    "fatigue": 0.014495897482755168,
-    "took_med": -0.03,
-    "mins_since_med": 0.012164338005510691
-  },
-  "feature_norms": {
-    "pain_pre": [
-      0.0,
-      10.0
-    ],
-    "emg": [
-      0.0,
-      100.0
-    ],
-    "posture": [
-      0.0,
-      2.0
-    ],
-    "cycle_day": [
-      1.0,
-      28.0
-    ],
-    "stress": [
-      0.0,
-      10.0
-    ],
-    "fatigue": [
-      0.0,
-      10.0
-    ],
-    "took_med": [
-      0.0,
-      1.0
-    ],
-    "mins_since_med": [
-      0.0,
-      240.0
-    ]
+    "ARM_HEAT_ONLY": {
+      "evaluation_method": "unavailable_untrained_arm",
+      "reason": "NO_TRAINING_DATA",
+      "n_samples": 0,
+      "note": "Evaluation metrics unavailable: arm has 0 training samples."
+    },
+    "ARM_HEAT_PULSE": {
+      "evaluation_method": "in_sample_synthetic_development",
+      "in_sample_mae": 0.6835,
+      "in_sample_rmse": 0.8802,
+      "in_sample_r2": 0.7023,
+      "note": "SYNTHETIC \u2014 in-sample only. Not representative of clinical performance."
+    },
+    "ARM_HEAT_HARMONIC": {
+      "evaluation_method": "in_sample_synthetic_development",
+      "in_sample_mae": 0.7256,
+      "in_sample_rmse": 0.8987,
+      "in_sample_r2": 0.8307,
+      "note": "SYNTHETIC \u2014 in-sample only. Not representative of clinical performance."
+    }
   }
 }

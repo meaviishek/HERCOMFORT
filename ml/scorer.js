@@ -59,6 +59,62 @@ if (PILOT_TRIAL_MODE) {
  * Loads model_weights.json from disk.
  * Called once at server startup. Falls back to rule-based scoring if file missing.
  */
+/**
+ * Validates model_weights.json schema, version, and dimensions.
+ * Rejects malformed or incompatible artifacts before inference.
+ */
+export function validateModelWeights(weights) {
+  if (!weights || typeof weights !== 'object') {
+    return { valid: false, reason: 'Weights must be a non-null object' };
+  }
+  if (!weights.model_version || typeof weights.model_version !== 'string') {
+    return { valid: false, reason: 'Missing or invalid model_version string' };
+  }
+  const expectedFeatures = ["pain_pre_baseline", "emg_pre_rms", "cycle_day", "posture_code", "took_medication"];
+  if (!Array.isArray(weights.feature_columns) || weights.feature_columns.length !== expectedFeatures.length) {
+    return { valid: false, reason: `feature_columns must be an array of length ${expectedFeatures.length}` };
+  }
+  for (let i = 0; i < expectedFeatures.length; i++) {
+    if (weights.feature_columns[i] !== expectedFeatures[i]) {
+      return { valid: false, reason: `feature_columns mismatch at index ${i}: expected ${expectedFeatures[i]}, got ${weights.feature_columns[i]}` };
+    }
+  }
+  if (!weights.scaler || !Array.isArray(weights.scaler.mean) || !Array.isArray(weights.scaler.scale)) {
+    return { valid: false, reason: 'scaler must contain mean and scale arrays' };
+  }
+  if (weights.scaler.mean.length !== expectedFeatures.length || weights.scaler.scale.length !== expectedFeatures.length) {
+    return { valid: false, reason: `scaler mean and scale arrays must have length ${expectedFeatures.length}` };
+  }
+  if (!weights.arm_models || typeof weights.arm_models !== 'object') {
+    return { valid: false, reason: 'arm_models must be an object' };
+  }
+  for (const [armKey, armModel] of Object.entries(weights.arm_models)) {
+    if (typeof armModel !== 'object' || armModel === null) {
+      return { valid: false, reason: `arm model for ${armKey} must be an object` };
+    }
+    if (armModel.is_fallback) {
+      if (typeof armModel.fallback_reason !== 'string') {
+        return { valid: false, reason: `fallback arm ${armKey} must specify fallback_reason` };
+      }
+    } else {
+      if (typeof armModel.intercept !== 'number' || !Number.isFinite(armModel.intercept)) {
+        return { valid: false, reason: `trained arm ${armKey} must have finite numeric intercept` };
+      }
+      if (!Array.isArray(armModel.coefficients) || armModel.coefficients.length !== expectedFeatures.length) {
+        return { valid: false, reason: `trained arm ${armKey} coefficients must have length ${expectedFeatures.length}` };
+      }
+      if (!armModel.coefficients.every(c => typeof c === 'number' && Number.isFinite(c))) {
+        return { valid: false, reason: `trained arm ${armKey} coefficients must all be finite numbers` };
+      }
+    }
+  }
+  return { valid: true };
+}
+
+/**
+ * Loads model_weights.json from disk.
+ * Called once at server startup. Falls back to rule-based scoring if file missing or invalid.
+ */
 export function loadModel() {
   try {
     if (!fs.existsSync(WEIGHTS_PATH)) {
@@ -69,14 +125,32 @@ export function loadModel() {
     }
 
     const raw = fs.readFileSync(WEIGHTS_PATH, 'utf-8');
-    modelWeights = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    const validation = validateModelWeights(parsed);
+    if (!validation.valid) {
+      console.error(`❌ [ML Scorer] Model weights validation failed: ${validation.reason}`);
+      isModelLoaded = false;
+      modelWeights = null;
+      return false;
+    }
+
+    modelWeights = parsed;
     modelVersion = modelWeights.model_version || 'preset-scorer-v1.0';
     isModelLoaded = true;
 
     console.log(`✅ [ML Scorer] Loaded model: ${modelVersion}`);
     console.log(`   Type: ${modelWeights.model_type}`);
-    console.log(`   Dataset: ${modelWeights.training_meta?.dataset}`);
+    console.log(`   Dataset type: ${modelWeights.training_meta?.dataset_type}`);
+    console.log(`   Trained at: ${modelWeights.training_meta?.trained_at}`);
     console.log(`   ⚠️  Disclaimer: ${modelWeights.training_meta?.disclaimer}`);
+
+    // Warn on fallback arms so operator knows which arms lack learned weights
+    const fallbackArms = Object.entries(modelWeights.arm_models || {})
+      .filter(([, m]) => m.is_fallback)
+      .map(([arm]) => arm);
+    if (fallbackArms.length > 0) {
+      console.warn(`⚠️  [ML Scorer] FALLBACK arms (not learned — will not produce ML scores): ${fallbackArms.join(', ')}`);
+    }
     return true;
   } catch (err) {
     console.error('[ML Scorer] Failed to load model weights:', err.message);
@@ -94,96 +168,105 @@ function normalize(value, min, max) {
 }
 
 /**
- * Compute context adjustment score for a given preset using linear weights.
- * Higher score = this preset is expected to give more relief in this context.
+ * Evaluate the exact trained model from model_weights.json.
+ * Zero discrepancy with Python training pipeline.
  *
- * @param {object} context - Validated user context features
- * @param {object} preset  - One of the 12 therapy presets
- * @returns {number} - Context adjustment (additive to preset's mean ΔPain)
+ * Prediction formula:
+ *   y_hat(X, a) = intercept[a] + sum_j( coeff[a][j] * (X[j] - mean[j]) / scale[j] )
+ *
+ * @param {object} context - User context features
+ * @returns {Array} - Presets sorted descending by predicted DeltaPain
  */
-function computeContextAdjustment(context, preset) {
-  if (!isModelLoaded || !modelWeights?.feature_weights) {
-    return 0; // No adjustment without weights
+export function scoreAllPresets(context) {
+  if (!isModelLoaded || !modelWeights?.arm_models) {
+    // Graceful fallback to rule-based ranking if weights not loaded
+    const defaultPreset = ruleBasedPreset(context);
+    return THERAPY_PRESETS.map((p) => ({
+      presetId: p.id,
+      presetName: p.name,
+      score: null,
+      predictedDeltaPain: null,
+      isFallback: true,
+      fallbackReason: 'MODEL_NOT_LOADED',
+      settingSource: 'fallback_rule',
+    })).sort((a, b) => (a.presetId === defaultPreset.id ? -1 : 1));
   }
 
-  const weights = modelWeights.feature_weights;
-  const norms = modelWeights.feature_norms || {
-    pain_pre:       [0, 10],
-    emg:            [0, 100],
-    posture:        [0, 2],
-    cycle_day:      [1, 28],
-    stress:         [0, 10],
-    fatigue:        [0, 10],
-    took_med:       [0, 1],
-    mins_since_med: [0, 240],
-  };
+  const scaler = modelWeights.scaler || { mean: [], scale: [] };
+  const imputation = modelWeights.imputation || {};
+  const postureCode = { LYING: 0.0, UPRIGHT: 1.0, WALKING: 2.0, UNKNOWN: 1.0 };
 
-  const postureCode = { LYING: 0, UPRIGHT: 1, WALKING: 2, UNKNOWN: 1 };
+  // Normalized features aligned with train_model.py FEATURE_COLUMNS:
+  // ["pain_pre_baseline", "emg_pre_rms", "cycle_day", "posture_code", "took_medication"]
+  // Imputation values are fitted on training data and persisted in the artifact
+  const rawFeatures = [
+    context.painPre_baseline ?? context.painPre ?? imputation.pain_pre_baseline ?? 5.0,
+    context.emg_pre_rms ?? context.emg ?? imputation.emg_pre_rms ?? 35.0,
+    context.cycleDay ?? imputation.cycle_day ?? 14.0,
+    postureCode[context.posture] ?? imputation.posture_code ?? 1.0,
+    context.tookMedication != null
+      ? (context.tookMedication ? 1.0 : 0.0)
+      : (imputation.took_medication ?? 0.0),
+  ];
 
-  const features = {
-    pain_pre:       normalize(context.painPre      ?? 5, ...norms.pain_pre),
-    emg:            normalize(context.emg          ?? 50, ...norms.emg),
-    posture:        normalize(postureCode[context.posture] ?? 1, ...norms.posture),
-    cycle_day:      normalize(context.cycleDay     ?? 14, ...norms.cycle_day),
-    stress:         normalize(context.stress       ?? 5, ...norms.stress),
-    fatigue:        normalize(context.fatigue      ?? 5, ...norms.fatigue),
-    took_med:       context.tookMedication ? 1 : 0,
-    mins_since_med: normalize(context.minutesSinceMedication ?? 0, ...norms.mins_since_med),
-  };
-
-  // Preset strength factor (stronger presets benefit more in high-pain context)
-  const presetStrengthFactor = preset.vibrationSpeed / 100.0;
-  const painSignal = features.pain_pre;
-
-  // Positive: pain × preset_strength → aggressive preset fits high pain context
-  const painPresetInteraction = weights.pain_pre * painSignal * presetStrengthFactor;
-
-  // EMG high → stronger presets are more effective
-  const emgSignal = weights.emg * features.emg * presetStrengthFactor;
-
-  // Medication penalty: if medication taken recently, body doesn't need strong preset
-  const medPenalty = weights.took_med * features.took_med;
-
-  return painPresetInteraction + emgSignal + medPenalty;
-}
-
-/**
- * Score all 12 presets for the given context.
- *
- * Scoring = presetMeanDeltaPain × painMatchFactor + contextAdjustment
- *
- * painMatchFactor: Gentle presets score HIGHER for low pain,
- *                  strong presets score HIGHER for high pain.
- * This prevents the synthetic prior from always returning the strongest preset.
- */
-function scoreAllPresets(context) {
-  const presetStats = modelWeights?.preset_stats || {};
-  const painNorm = Math.max(0, Math.min(1, (context.painPre ?? 5) / 10)); // 0=no pain, 1=max pain
-
-  // Preset "strength" (0=gentle, 1=max): based on vibration speed
-  const presetStrength = (preset) => preset.vibrationSpeed / 100;
+  const scaledFeatures = rawFeatures.map((val, idx) => {
+    const mean = scaler.mean?.[idx] ?? 0.0;
+    const scale = scaler.scale?.[idx] ?? 1.0;
+    return scale !== 0 ? (val - mean) / scale : 0.0;
+  });
 
   return THERAPY_PRESETS.map((preset) => {
-    const baseMeanDelta = presetStats[preset.id]?.mean_delta_pain ?? 1.5;
-    const strength = presetStrength(preset);
+    // Resolve the arm model for this preset by arm label or vibration mode
+    const armKey = preset.id === 'ARM_HEAT_ONLY' || preset.vibrationMode === 'OFF'
+      ? 'ARM_HEAT_ONLY'
+      : preset.vibrationMode === 'HARMONIC'
+        ? 'ARM_HEAT_HARMONIC'
+        : 'ARM_HEAT_PULSE';
 
-    // Pain-match factor: peaks when preset strength ≈ pain level
-    // Gaussian-like: e^(-4 * (strength - painNorm)^2)
-    const diff = strength - painNorm;
-    const painMatchFactor = Math.exp(-4 * diff * diff);
+    const model = modelWeights.arm_models[preset.id]
+               || modelWeights.arm_models[preset.presetId]
+               || modelWeights.arm_models[armKey];
 
-    const adjustment = computeContextAdjustment(context, preset);
+    // If the arm is marked as fallback (no learned weights), do not produce a
+    // spurious score. Return a clearly labeled fallback so callers can
+    // distinguish a learned prediction from a hard-coded prior.
+    if (!model || model.is_fallback) {
+      return {
+        presetId: preset.id,
+        presetName: preset.name,
+        arm: armKey,
+        score: null,
+        predictedDeltaPain: null,
+        isFallback: true,
+        fallbackReason: model?.fallback_reason ?? 'NO_ARM_MODEL',
+        settingSource: 'fallback_untrained',
+      };
+    }
 
-    // Final score: base relief weighted by pain match + context
-    const score = baseMeanDelta * painMatchFactor + adjustment * 0.5;
+    let pred = model.intercept ?? 0.0;
+    if (Array.isArray(model.coefficients)) {
+      for (let j = 0; j < model.coefficients.length; j++) {
+        pred += model.coefficients[j] * (scaledFeatures[j] || 0.0);
+      }
+    }
 
     return {
       presetId: preset.id,
       presetName: preset.name,
-      score: Math.round(score * 10000) / 10000,
-      presetMeanDeltaPain: baseMeanDelta,
+      arm: armKey,
+      score: Math.round(pred * 10000) / 10000,
+      predictedDeltaPain: Math.round(pred * 100) / 100,
+      isFallback: false,
+      settingSource: 'ml_model',
     };
-  }).sort((a, b) => b.score - a.score);
+  })
+  // Sort: trained predictions first (desc by score), fallbacks last
+  .sort((a, b) => {
+    if (a.score === null && b.score === null) return 0;
+    if (a.score === null) return 1;
+    if (b.score === null) return -1;
+    return b.score - a.score;
+  });
 }
 
 /**
@@ -230,7 +313,11 @@ export function prescribe(context, options = {}) {
   // 1/K (uniform) for every session.
   // The allocator output still passes through the safety interceptor in the
   // calling route (therapy.routes.js) before being delivered to the user.
-  if (PILOT_TRIAL_MODE) {
+  const isTrialActive = process.env.PILOT_TRIAL_MODE !== undefined
+    ? process.env.PILOT_TRIAL_MODE === 'true'
+    : PILOT_TRIAL_MODE;
+
+  if (isTrialActive) {
     const { participantId, sessionOrder } = options;
     if (!participantId || !sessionOrder) {
       throw new Error(
@@ -281,46 +368,44 @@ export function prescribe(context, options = {}) {
     const scores = scoreAllPresets(context);
     allScores = Object.fromEntries(scores.map(s => [s.presetId, s.score]));
 
-    // Restrict exploration pool to topN safe presets only
-    const topN = Math.min(effectiveTopN, scores.length);
+    // Isolate trained, non-fallback arms only (arms with is_fallback: false and numeric scores)
+    const trainedScores = scores.filter(s => !s.isFallback && s.score !== null && Number.isFinite(s.score));
 
-    // ── Propensity formula (IPS-correct) ────────────────────────────────────
-    //
-    // Under epsilon-greedy with exploration pool of size N:
-    //   P(top-1 | context) = (1 - eps)   [exploit mass]
-    //                      + eps / N     [explore share when top-1 is sampled]
-    //                      = (1 - eps + eps/N)
-    //
-    //   P(rank 2..N | context) = eps / N  [only reachable via exploration]
-    //
-    // These probabilities sum to 1:
-    //   P(top-1) + (N-1)*P(other) = (1-eps+eps/N) + (N-1)*(eps/N)
-    //                             = 1 - eps + eps/N + eps - eps/N = 1  ✓
-    //
-    const pExploreEach = round4(effectiveEpsilon / topN);      // eps/N
-    const pTop1        = round4(1.0 - effectiveEpsilon + pExploreEach); // (1-eps)+eps/N
-
-    let chosenIndex = 0;
-    if (effectiveEpsilon > 0 && Math.random() < effectiveEpsilon) {
-      // Explore: uniformly sample from top-N safe presets
-      chosenIndex = Math.floor(Math.random() * topN);
-      propensity = chosenIndex === 0 ? pTop1 : pExploreEach;
-      settingSource = 'ml_recommendation';
+    if (trainedScores.length === 0) {
+      // All arms in artifact are fallback arms — cannot provide ML recommendations
+      chosenPreset = ruleBasedPreset(context);
+      settingSource = 'fallback_untrained';
+      propensity = 1.0;
+      predictedDeltaPain = null;
     } else {
-      // Exploit: always pick top-1 (greedy)
-      chosenIndex = 0;
-      propensity = pTop1;
+      // Restrict exploration pool to topN safe trained presets only
+      const topN = Math.min(effectiveTopN, trainedScores.length);
+
+      // ── Propensity formula (IPS-correct) ────────────────────────────────────
+      const pExploreEach = round4(effectiveEpsilon / topN);      // eps/N
+      const pTop1        = round4(1.0 - effectiveEpsilon + pExploreEach); // (1-eps)+eps/N
+
+      let chosenIndex = 0;
+      if (effectiveEpsilon > 0 && Math.random() < effectiveEpsilon) {
+        // Explore: uniformly sample from top-N safe trained presets
+        chosenIndex = Math.floor(Math.random() * topN);
+        propensity = chosenIndex === 0 ? pTop1 : pExploreEach;
+      } else {
+        // Exploit: always pick top-1 (greedy)
+        chosenIndex = 0;
+        propensity = pTop1;
+      }
+
+      chosenPreset = PRESET_MAP[trainedScores[chosenIndex].presetId] || SAFE_DEFAULT_PRESET;
+      predictedDeltaPain = round4(trainedScores[chosenIndex].score);
       settingSource = 'ml_recommendation';
+
+      console.log(
+        `[scorer] chosen=${chosenPreset.id} rank=${chosenIndex+1}/${topN}` +
+        ` propensity=${propensity} eps=${effectiveEpsilon}` +
+        ` legacyPilotMode=${PILOT_MODE}`,
+      );
     }
-
-    chosenPreset = PRESET_MAP[scores[chosenIndex].presetId];
-    predictedDeltaPain = round4(scores[chosenIndex].score);
-
-    console.log(
-      `[scorer] chosen=${chosenPreset.id} rank=${chosenIndex+1}/${topN}` +
-      ` propensity=${propensity} eps=${effectiveEpsilon}` +
-      ` legacyPilotMode=${PILOT_MODE}`,
-    );
   } else {
     // Rule-based baseline (model not yet loaded)
     chosenPreset = ruleBasedPreset(context);
@@ -353,9 +438,27 @@ export function getModelVersion() {
 }
 
 export function getModelStatus() {
+  const fallbackArms = Object.entries(modelWeights?.arm_models || {})
+    .filter(([, m]) => m.is_fallback)
+    .map(([arm]) => arm);
   return {
     isLoaded: isModelLoaded,
     version: modelVersion,
     type: modelWeights?.model_type || 'rule-based-fallback',
+    datasetType: modelWeights?.training_meta?.dataset_type ?? null,
+    isSyntheticModel: modelWeights?.training_meta?.dataset_type === 'SYNTHETIC_DEVELOPMENT',
+    hasFallbackArms: fallbackArms.length > 0,
+    fallbackArms,
+    disclaimer: modelWeights?.training_meta?.disclaimer ?? null,
+  };
+}
+
+export function scorePresets(context, options = {}) {
+  const ranked = scoreAllPresets(context);
+  const eps = options.epsilon ?? 0.0;
+  return {
+    success: true,
+    rankedPresets: ranked.map(p => ({ ...p, propensity: 1 / ranked.length })),
+    recommendedPreset: ranked[0] || null,
   };
 }

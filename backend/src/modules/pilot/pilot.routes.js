@@ -362,6 +362,19 @@ router.post('/session/start', authGuard, async (req, res, next) => {
     // ── Stale-session check: clean up any IN_PROGRESS sessions >3h old
     await cleanupStaleSessions(userId);
 
+    // ── Guard against duplicate session starts and duplicate requests
+    if (sessionId) {
+      const existingSession = await TherapyLog.findOne({ sessionId });
+      if (existingSession) {
+        return res.status(409).json({
+          success: false,
+          error: 'duplicateSessionId',
+          message: `TherapyLog with sessionId '${sessionId}' already exists.`,
+          logId: existingSession._id,
+        });
+      }
+    }
+
     // Allocate arm using participant's enrolled sequence
     const allocation = allocateArm(participantId, sessionOrder, participant.sequenceIndex);
     const armPreset  = buildArmPreset(allocation.arm);

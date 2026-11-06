@@ -1,5 +1,86 @@
 {
-  "mae": 0.6939,
-  "r2": 0.8109,
-  "train_time": 0.206
+  "model_version": "pilot-calibrated-ridge-v1.0",
+  "training_meta": {
+    "dataset_type": "SYNTHETIC_DEVELOPMENT",
+    "dataset_path": "C:\\Users\\OMHARI\\Development\\HERCOMFORT\\ml\\data\\synthetic_prototype_dataset.csv",
+    "target_definition": "deltaPain_15min = painPre_baseline - painPost_15min",
+    "n_samples": 5000,
+    "unique_participants": 3925,
+    "per_arm_samples": {
+      "ARM_HEAT_ONLY": 0,
+      "ARM_HEAT_PULSE": 2752,
+      "ARM_HEAT_HARMONIC": 2248
+    },
+    "per_arm_unique_participants": {
+      "ARM_HEAT_ONLY": 0,
+      "ARM_HEAT_PULSE": 2416,
+      "ARM_HEAT_HARMONIC": 1999
+    },
+    "emg_imputed_rows": 0,
+    "train_time_seconds": 0.031,
+    "random_seed": 42,
+    "trained_at": "2026-11-04T08:42:20Z",
+    "disclaimer": "Synthetic cold-start prior. Not for clinical use."
+  },
+  "evaluation": {
+    "ARM_HEAT_ONLY": {
+      "evaluation_method": "unavailable_untrained_arm",
+      "reason": "NO_TRAINING_DATA",
+      "n_samples": 0,
+      "note": "Evaluation metrics unavailable: arm has 0 training samples."
+    },
+    "ARM_HEAT_PULSE": {
+      "evaluation_method": "in_sample_synthetic_development",
+      "in_sample_mae": 0.6835,
+      "in_sample_rmse": 0.8802,
+      "in_sample_r2": 0.7023,
+      "note": "SYNTHETIC \u2014 in-sample only. Not representative of clinical performance."
+    },
+    "ARM_HEAT_HARMONIC": {
+      "evaluation_method": "in_sample_synthetic_development",
+      "in_sample_mae": 0.7256,
+      "in_sample_rmse": 0.8987,
+      "in_sample_r2": 0.8307,
+      "note": "SYNTHETIC \u2014 in-sample only. Not representative of clinical performance."
+    }
+  },
+  "arm_models": {
+    "ARM_HEAT_ONLY": {
+      "intercept": 1.2,
+      "coefficients": [
+        0.2,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "n_samples": 0,
+      "is_fallback": true,
+      "fallback_reason": "NO_TRAINING_DATA"
+    },
+    "ARM_HEAT_PULSE": {
+      "intercept": 2.3712,
+      "coefficients": [
+        1.389,
+        0.065,
+        -0.0038,
+        0.0,
+        -0.09
+      ],
+      "n_samples": 2752,
+      "is_fallback": false
+    },
+    "ARM_HEAT_HARMONIC": {
+      "intercept": 3.1916,
+      "coefficients": [
+        1.9547,
+        0.2676,
+        -0.0079,
+        0.0,
+        0.0066
+      ],
+      "n_samples": 2248,
+      "is_fallback": false
+    }
+  }
 }
